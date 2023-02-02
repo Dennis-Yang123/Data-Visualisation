@@ -1,0 +1,2123 @@
+---
+title: "MA304 Coursework Assignment"
+author: 'REG NO: 1905146'
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(leaflet)
+library(tidyverse)
+library(rgdal)
+library(scales)
+library(patchwork)
+library(ggcorrplot)
+```
+
+# Introduction
+
+For this assignment we are given a data set containing various policing and crime statistics in Dallas 2016 and are tasked with analysing and interpreting the data set. 
+
+
+I have split this report into 4 sections in the first section I will analyse some initial preliminary findings of the data set; in the second section I will analyse the different types of crimes and rates in Dallas against different factors such as race and location; in the third section I will analyse the data to see if there is any discrimination in policing by looking at different factors such as suspect race and incident reason and for the last section I will analyse the Use of Force (UOF) incidents and look at the different factors for the type of UOF used.
+
+
+
+# Preliminary Findings
+
+We first begin by loading up the data set and setting up our working directory. (I have swapped the first and second rows of the original .csv file since the information in the second row is useless and is more convenient to plot by skipping the new first row).
+
+```{r , echo=TRUE}
+setwd("~/R/r scripts")
+mydata = read.csv("37-00049_UOF-P_2016_prepped.csv", skip = 1, header=TRUE)
+```
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE}
+SuspectRaceReduced <- rep(0,ncol(mydata))
+for (i in 13) {
+SuspectRaceReduced[mydata[,i]=="American Ind"] <- "Other"  
+SuspectRaceReduced[mydata[,i]=="Asian"] <- "Other"  
+SuspectRaceReduced[mydata[,i]=="NULL"] <- "Other"
+SuspectRaceReduced[mydata[,i]=="Black"] <- "Black"
+SuspectRaceReduced[mydata[,i]=="White"] <- "White"
+SuspectRaceReduced[mydata[,i]=="Hispanic"] <- "Hispanic" 
+SuspectRaceReduced[mydata[,i]=="Other"] <- "Other"  
+}
+mydata$SuspectRaceReduced <- SuspectRaceReduced
+```
+
+We can make several preliminary findings with bar plots below:
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mydata$INCIDENT_DATE <- as.Date(mydata$INCIDENT_DATE, format = "%m/%d/%Y")
+INCIDENT_DATE <- gsub("0016","2016",mydata$INCIDENT_DATE)
+mydata$INCIDENT_MONTH <- months(as.Date(mydata$INCIDENT_DATE))
+#remove # if running for the first time then add
+
+for (i in 49) {
+mydata$INCIDENT_MONTH[mydata[,i]=="January"]   <- "01"
+mydata$INCIDENT_MONTH[mydata[,i]=="February"]   <- "02"
+mydata$INCIDENT_MONTH[mydata[,i]=="March"]   <- "03"
+mydata$INCIDENT_MONTH[mydata[,i]=="April"]   <- "04"
+mydata$INCIDENT_MONTH[mydata[,i]=="May"]   <- "05"
+mydata$INCIDENT_MONTH[mydata[,i]=="June"]   <- "06"
+mydata$INCIDENT_MONTH[mydata[,i]=="July"]   <- "07"
+mydata$INCIDENT_MONTH[mydata[,i]=="August"]   <- "08"
+mydata$INCIDENT_MONTH[mydata[,i]=="September"]   <- "09"
+mydata$INCIDENT_MONTH[mydata[,i]=="October"]   <- "10"
+mydata$INCIDENT_MONTH[mydata[,i]=="November"]   <- "11"
+mydata$INCIDENT_MONTH[mydata[,i]=="December"]   <- "12"
+}
+Race <-c("Black", "Hispanic", "Other", "White")
+
+
+mydata_race_incident <-  mydata %>%
+  group_by(INCIDENT_MONTH, SUBJECT_RACE) %>%
+  summarize(count = n())
+
+ggplot(data=mydata, aes(x=SuspectRaceReduced)) + xlab("Suspect Race") + geom_bar(position="dodge", fill="deepskyblue")  + theme_bw() + ggtitle("Race of Suspects & No. of Incidents")
+
+ggplot() + geom_line(data=subset(mydata_race_incident, SUBJECT_RACE=="Black" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Black"),group=1 ,size=1 ) + geom_line(data=subset(mydata_race_incident, SUBJECT_RACE=="Hispanic" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Hispanic"),group=1,size=1 ) + geom_line(data=subset(mydata_race_incident, SUBJECT_RACE=="White" ) ,aes(y=count,x= INCIDENT_MONTH, colour="White"),group=1,size=1 ) + labs(x="Months", y= "count", title=" Suspect Race vs No. of Incidents", colour= "Legend") + scale_color_manual(values= c("black", "red", "deepskyblue"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=3)) + theme_bw()
+
+summary(mydata$SUBJECT_GENDER)
+summary(mydata$SUBJECT_RACE)
+```
+
+
+From the bar plot above we can see the ethnicities of the suspects that had an incident with the police. Looking at the bar plot we can see that suspects that were Black had an overwhelming number of incidents compared to Hispanic and White suspects and other races which were negligible. From the time series plot above we can see that there is a general trend of the number of incidents decreasing till the end of the year with different peaks throughout the year but with all three races having their lowest count of incidents in December.
+
+
+Using the *summary()* function we are able to see more specifically that there were 1333 black suspects that had an incident with the police which is more than the combined total of hispanic and white suspects at 524 and 470 respectively. We can also see from the plot and the *summary()* function that majority of the suspects were male with 1492 more male suspects having an incident with the police compared to females.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+mydata_month <-  mydata %>%
+  group_by(INCIDENT_MONTH) %>%
+  summarize(count = n())
+
+ggplot(data = mydata_month, aes(x=INCIDENT_MONTH, y=count, group=1)) + geom_line(size = 1, colour="deepskyblue") + xlab("Months") + ggtitle("Incidents with police throughout the year") + theme_bw()
+
+
+```
+
+
+From the plot above we can see that there is a peak in the number of incidents in March with a general trend of it decreasing with a small peak in September till reaching its lowest count at the end of the year in December. This follows the same general trend as the previous time series of the number of incidents against race.
+
+
+We can start to look more specifically to suspects that were arrested or not arrested using the same bar plot above.
+```{r, echo=FALSE}
+ggplot(data=mydata, aes(fill=SUBJECT_WAS_ARRESTED,x=SuspectRaceReduced)) + xlab("Suspect Race") + geom_bar(position="dodge") + scale_fill_manual("Arrested",values=c("darkorchid","darkgreen")) + theme_bw() + ggtitle("Number of arrests against race")
+summary(mydata$SUBJECT_WAS_ARRESTED)
+```
+From the bar plot above we can still see that Black suspects are still overwhelmingly arrested more than Hispanic and White suspects.
+
+
+We can look for a general overview of the police force in this data set by looking at make up of the force by race and gender.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+OfficerRaceReduced <- rep(0,ncol(mydata))
+for (i in 6) {
+OfficerRaceReduced[mydata[,i]=="American Ind"] <- "Other"  
+OfficerRaceReduced[mydata[,i]=="Asian"] <- "Other"  
+OfficerRaceReduced[mydata[,i]=="NULL"] <- "Other"
+OfficerRaceReduced[mydata[,i]=="Black"] <- "Black"
+OfficerRaceReduced[mydata[,i]=="White"] <- "White"
+OfficerRaceReduced[mydata[,i]=="Hispanic"] <- "Hispanic" 
+OfficerRaceReduced[mydata[,i]=="Other"] <- "Other"  
+}
+mydata$OfficerRaceReduced <- OfficerRaceReduced
+
+
+ggplot(data=mydata, aes(x=OfficerRaceReduced)) + xlab("Officer Race") + geom_bar(position="dodge", fill="deepskyblue")  + theme_bw() + ggtitle("Number of police officers by race and gender") + facet_wrap(~OFFICER_GENDER, nrow=2)
+summary(mydata$OFFICER_RACE)
+summary(mydata$OFFICER_GENDER)
+```
+
+
+From the plot above we can see that police force in this data set is made up of predominantly male officers and that a large majority of police officers are White followed by Hispanic then Black police officers.
+
+
+To analyse the crime rate in Dallas I have split the types of crimes into 5 categories: **Violent Crime**, **Drug Crime**, **Property Crime**, **Traffic Crime** and **Misdemeanors**. To look at the rate of violent crime in Dallas I have reduced the variety of the crimes due to the large amount of similar iterations for assault and will do a similar process for the other crime categories. I will also create new columns for the different crime categories to make it easier to create plots.
+
+```{r, echo=FALSE}
+violent_crime <- rep(0,nrow(mydata))
+for (i in 19) {
+violent_crime[mydata[,i]=="APOWW, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Assault"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Assault/Public Servant, Evading Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Burglary/Habitation"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Criminal Mischief"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Criminal Mischief, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Criminal Mischief, Warrant/Hold, Assault/Public Servant, Other Misdemeanor Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Disorderly Conduct"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Drug Possession - Misdemeanor"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, DWI, Resisting Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Evading Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Evading Arrest, Drug Possession - Felony"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Fail to ID"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Fail to ID, Other Felony Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Fail to ID, Resisting Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Fail to ID, Resisting Search and Transport"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Fail to ID, Theft, Public Intoxication, Resisting Search and Transport, Other Misdemeanor Arrest, Other Felony Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Other Felony Arrest, Evading Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Other Misdemeanor Arrest, Other Felony Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Public Intoxication"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Resisting Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Resisting Arrest, Other Felony Arrest, Fail to ID"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Resisting Arrest, Warrant/Hold, Drug Possession - Felony"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Resisting Search and Transport, Other Felony Arrest, DWLI"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Robbery"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Traffic Violation"] <- "Assault"
+violent_crime[mydata[,i]=="Assault, Warrant/Hold"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, APOWW"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, APOWW, Other Felony Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Assault"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Assault/FV, Resisting Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Crim Trespass/Bldg/Prop, Evading Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Crim Trespass/Bldg/Prop, Resisting Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Criminal Mischief, Fail to ID, Resisting Arrest, Public Intoxication"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Drug Possession - Felony, Other Felony Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Drug Possession - Felony, Warrant/Hold"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Drug Possession - Misdemeanor"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest, Crim Trespass/Bldg/Prop"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest, No Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest, Resisting Arrest, Public Intoxication"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest, Resisting Search and Transport"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Fail to ID"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Other Felony Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Other Felony Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Other Misdemeanor Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Public Intoxication"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Public Intoxication, Evading Arrest, Resisting Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Public Intoxication, Theft"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Resisting Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Resisting Arrest, Evading Arrest, Warrant/Hold"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Resisting Arrest, Fail to ID"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Resisting Search and Transport"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Robbery, Resisting Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Robbery, Resisting Search and Transport"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Take Weapon from PO"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Warrant/Hold"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Warrant/Hold, Drug Possession - Felony"] <- "Assault"
+violent_crime[mydata[,i]=="Assault/Public Servant, Warrant/Hold, Fail to ID"] <- "Assault"
+violent_crime[mydata[,i]=="Burglary/Habitation, Assault"] <- "Assault"
+violent_crime[mydata[,i]=="Burglary/Habitation, Assault/Public Servant, Other Felony Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Resisting Arrest, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Disorderly Conduct, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="DWI, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="DWI, Assault/Public Servant, Drug Possession - Felony, Other Felony Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="DWI, Resisting Arrest, Warrant/Hold, Assault"] <- "Assault"
+violent_crime[mydata[,i]=="DWLI, Warrant/Hold, Assault, Criminal Mischief, Resisting Search and Transport, Other Felony Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Evading Arrest, Assault"] <- "Assault"
+violent_crime[mydata[,i]=="Evading Arrest, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Evading Arrest, Other Felony Arrest, Assault"] <- "Assault"
+violent_crime[mydata[,i]=="Fail to ID, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Other Felony Arrest, Assault, Drug Possession - Misdemeanor"] <- "Assault"
+violent_crime[mydata[,i]=="Other Felony Arrest, Assault, Evading Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Other Felony Arrest, Assault, Resisting Search and Transport"] <- "Assault"
+violent_crime[mydata[,i]=="Other Felony Arrest, Assault, Resisting Search and Transport, Other Misdemeanor Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Other Felony Arrest, Assault, Resisting Search and Transport, Warrant/Hold"] <- "Assault"
+violent_crime[mydata[,i]=="Other Felony Arrest, Drug Possession - Misdemeanor, Assault/Public Servant, Warrant/Hold"] <- "Assault"
+violent_crime[mydata[,i]=="Other Felony Arrest, Other Misdemeanor Arrest, Assault"] <- "Assault"
+violent_crime[mydata[,i]=="Other Misdemeanor Arrest, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Other Misdemeanor Arrest, Evading Arrest, Warrant/Hold, Assault"] <- "Assault"
+violent_crime[mydata[,i]=="Prostitution, Resisting Arrest, Assault/Public Servant, Warrant/Hold"] <- "Assault"
+violent_crime[mydata[,i]=="Public Intoxication, Assault"] <- "Assault"
+violent_crime[mydata[,i]=="Public Intoxication, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Public Intoxication, Criminal Mischief, Fail to ID, Assault/Public Servant, Resisting Arrest"] <- "Assault"
+violent_crime[mydata[,i]=="Public Intoxication, Criminal Mischief, Resisting Arrest, Fail to ID, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Public Intoxication, Resisting Search and Transport, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Resisting Arrest, Assault"] <- "Assault"
+violent_crime[mydata[,i]=="Resisting Arrest, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Resisting Arrest, Assault/Public Servant, Fail to ID"] <- "Assault"
+violent_crime[mydata[,i]=="Resisting Search and Transport, Assault"] <- "Assault"
+violent_crime[mydata[,i]=="Theft, Public Intoxication, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Warrant/Hold, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Warrant/Hold, Other Misdemeanor Arrest, Assault/Public Servant"] <- "Assault"
+violent_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Assault"] <- "Assault"
+violent_crime[mydata[,i]=="Warrant/Hold, Resisting Search and Transport, Assault/Public Servant"] <- "Assault"
+######################################
+violent_crime[mydata[,i]=="APOWW, Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, APOWW"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Assault"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Assault, Resisting Arrest, Resisting Search and Transport, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Assault, Resisting Search and Transport, Other Misdemeanor Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Assault/Public Servant"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Criminal Mischief"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Drug Possession - Felony"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Drug Possession - Misdemeanor"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Drug Possession - Misdemeanor, Resisting Arrest, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Drug Possession - Misdemeanor, Warrant/Hold, Other Felony Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Evading Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Evading Arrest, Assault/Public Servant"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Evading Arrest, Drug Possession - Misdemeanor"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Evading Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Evading Arrest, Other Felony Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Evading Arrest, Other Felony Arrest, Drug Possession - Misdemeanor"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Evading Arrest, Other Misdemeanor Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Evading Arrest, Resisting Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Evading Arrest, Resisting Arrest, Criminal Mischief"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Evading Arrest, Resisting Arrest, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Evading Arrest, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Fail to ID, Resisting Arrest, Other Misdemeanor Arrest, Warrant/Hold, Other Felony Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Fail to ID, Resisting Arrest, Warrant/Hold, Other Misdemeanor Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Other Felony Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Other Felony Arrest, Other Misdemeanor Arrest, Assault/Public Servant"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Other Felony Arrest, Robbery"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Other Felony Arrest, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Other Misdemeanor Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Other Misdemeanor Arrest, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Resisting Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Other Felony Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Other Misdemeanor Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Resisting Search and Transport, Other Felony Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Warrant/Hold, Other Felony Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Resisting Search and Transport"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Resisting Search and Transport, Other Felony Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Resisting Search and Transport, Other Felony Arrest, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Warrant/Hold"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Warrant/Hold, Assault/Public Servant"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Warrant/Hold, Drug Possession - Misdemeanor, Other Felony Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/FV, Warrant/Hold, Other Felony Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/Public Servant, Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Assault/Public Servant, Assault/FV, Resisting Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Burglary/Habitation, Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Criminal Mischief, Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Criminal Mischief, Drug Possession - Misdemeanor, Assault/Public Servant, Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Drug Possession - Felony, Assault/FV, Drug Possession - Misdemeanor, Evading Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Drug Possession - Felony, Drug Possession - Misdemeanor, Evading Arrest, Assault/FV, Other Misdemeanor Arrest"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Other Agency Arrest, Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Other Felony Arrest, Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Other Felony Arrest, Burglary/Habitation, Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Resisting Arrest, Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Resisting Arrest, Evading Arrest, Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Resisting Search and Transport, Assault/FV"] <- "Domestic Violence"
+violent_crime[mydata[,i]=="Warrant/Hold, Assault/FV, Other Felony Arrest"] <- "Domestic Violence"
+###############################
+violent_crime[mydata[,i]=="Assault/Public Servant, Take Weapon from PO"] <- "Firearms/Weapons Offense"
+violent_crime[mydata[,i]=="Crim Trespass/Hab/Weapon"] <- "Firearms/Weapons Offense"
+violent_crime[mydata[,i]=="Crim Trespass/Hab/Weapon, Criminal Mischief, Resisting Arrest"] <- "Firearms/Weapons Offense"
+violent_crime[mydata[,i]=="Crim Trespass/Hab/Weapon, Resisting Arrest"] <- "Firearms/Weapons Offense"
+violent_crime[mydata[,i]=="Discharge Firearm"] <- "Firearms/Weapons Offense"
+violent_crime[mydata[,i]=="Discharge Firearm, Other Misdemeanor Arrest, Warrant/Hold"] <- "Firearms/Weapons Offense"
+violent_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Take Weapon from PO"] <- "Firearms/Weapons Offense"
+violent_crime[mydata[,i]=="Robbery, Take Weapon from PO"] <- "Firearms/Weapons Offense"
+violent_crime[mydata[,i]=="Take Weapon from PO, Evading Arrest, Resisting Arrest"] <- "Firearms/Weapons Offense"
+violent_crime[mydata[,i]=="Take Weapon from PO, Resisting Arrest, Public Intoxication, Warrant/Hold, Other Misdemeanor Arrest"] <- "Firearms/Weapons Offense"
+violent_crime[mydata[,i]=="Warrant/Hold, Evading Arrest, Resisting Arrest, Take Weapon from PO"] <- "Firearms/Weapons Offense"
+violent_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Public Intoxication, Take Weapon from PO, Other Misdemeanor Arrest"] <- "Firearms/Weapons Offense"
+############################
+violent_crime[mydata[,i]=="Sexual Assault, Robbery"] <- "Sexual Crimes"
+violent_crime[mydata[,i]=="Sexual Assault, Warrant/Hold"] <- "Sexual Crimes"
+violent_crime[mydata[,i]=="Warrant/Hold, Sexual Assault"] <- "Sexual Crimes"
+violent_crime[mydata[,i]=="Prostitution"] <- "Sexual Crimes"
+violent_crime[mydata[,i]=="Prostitution, Resisting Arrest, Assault/Public Servant, Warrant/Hold"] <- "Sexual Crimes"
+violent_crime[mydata[,i]=="Prostitution, Resisting Arrest, Criminal Mischief"] <- "Sexual Crimes"
+###########################
+violent_crime[mydata[,i]=="Evading Arrest, Warrant/Hold, Murder"] <- "Murder"
+}
+violent_crime[violent_crime==0] <- NA
+mydata$Violent_Crime <- violent_crime
+
+mydata %>%
+   filter(!is.na(Violent_Crime)) %>%
+     ggplot(aes(x= Violent_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Violent Crime in Dallas 2016") + theme_bw()
+```
+
+From the bar plot above we can see the rate of violent crime in Dallas with Domestic Violence and Assault being the most frequent cases of violent crime with Murder and Sexual Crimes being among the lowest.
+
+
+```{r, echo=FALSE}
+drug_crime <- rep(0,nrow(mydata))
+for (i in 19) {
+drug_crime[mydata[,i]=="APOWW, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault, Evading Arrest, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault, Resisting Arrest, Warrant/Hold, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/FV, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/FV, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/FV, Drug Possession - Misdemeanor, Resisting Arrest, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/FV, Drug Possession - Misdemeanor, Warrant/Hold, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/FV, Evading Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/FV, Evading Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/FV, Evading Arrest, Other Felony Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/FV, Evading Arrest, Other Misdemeanor Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/FV, Warrant/Hold, Drug Possession - Misdemeanor, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/Public Servant, Drug Possession - Felony, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/Public Servant, Drug Possession - Felony, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/Public Servant, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/Public Servant, Other Felony Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Assault/Public Servant, Warrant/Hold, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Burglary of a Vehicle, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Burglary of a Vehicle, Drug Possession - Felony, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Burglary of a Vehicle, Resisting Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Burglary/Building, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Burglary/Habitation, Warrant/Hold, Drug Possession - Felony, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Criminal Mischief, Drug Possession - Misdemeanor, Assault/Public Servant, Assault/FV"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Disorderly Conduct, Resisting Search and Transport, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Assault/FV, Drug Possession - Misdemeanor, Evading Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Drug Possession - Misdemeanor, Evading Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Drug Possession - Misdemeanor, Evading Arrest, Assault/FV, Other Misdemeanor Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Drug Possession - Misdemeanor, Evading Arrest, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Drug Possession - Misdemeanor, Public Intoxication"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Evading Arrest, Resisting Search and Transport"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Man/Del/Dangerous Drug"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Other Felony Arrest, Resisting Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Other Misdemeanor Arrest, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Public Intoxication"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Public Intoxication, Resisting Arrest, Other Misdemeanor Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Resisting Search and Transport"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Felony, Warrant/Hold, Assault/Public Servant"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Drug Possession - Felony, Other Misdemeanor Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Drug Possession - Felony, Resisting Search and Transport, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Evading Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Evading Arrest, Other Misdemeanor Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Evading Arrest, Unauthorize Use Vehicle"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Evading Arrest, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Other Felony Arrest, Other Misdemeanor Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Other Misdemeanor Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Public Intoxication, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Resisting Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Resisting Arrest, Fail to ID"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Resisting Arrest, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Resisting Search and Transport"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Resisting Search and Transport, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Warrant/Hold, Evading Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Warrant/Hold, Fail to ID, Resisting Search and Transport"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Drug Possession - Misdemeanor, Warrant/Hold, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="DWI, Assault/Public Servant, Drug Possession - Felony, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="DWI, Drug Possession - Misdemeanor, Resisting Arrest, Escape"] <- "Drug Possession"
+drug_crime[mydata[,i]=="DWI, Other Misdemeanor Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="DWI, Resisting Arrest, Escape, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="DWI, Resisting Search and Transport, Drug Possession - Misdemeanor, Escape"] <- "Drug Possession"
+drug_crime[mydata[,i]=="DWLI, Resisting Search and Transport, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Escape, Drug Possession - Misdemeanor, DWI, Resisting Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor, Manifest/Drug Sales"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor, Warrant/Hold, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Drug Possession - Felony, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Drug Possession - Felony, Warrant/Hold, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Other Felony Arrest, Fail to ID, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Other Felony Arrest, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Other Misdemeanor Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Unauthorize Use Vehicle"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Warrant/Hold, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Man/Del/Dangerous Drug, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Other Felony Arrest, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Other Felony Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Drug Possession - Felony, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Resisting Search and Transport, Drug Possession - Felony, Theft"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Warrant/Hold, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Evading Arrest, Warrant/Hold, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Fail to ID, Resisting Arrest, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Man/Del/Dangerous Drug"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Man/Del/Dangerous Drug, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Man/Del/Dangerous Drug, Evading Arrest, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Man/Del/Dangerous Drug, Fail to ID, Other Felony Arrest, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Man/Del/Dangerous Drug, Resisting Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Man/Del/Dangerous Drug, Resisting Arrest, Other Misdemeanor Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Manifest/Drug Sales, Resisting Arrest, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Manifest/Drug Sales, Warrant/Hold, Drug Possession - Misdemeanor, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Felony Arrest, Assault, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Felony Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Felony Arrest, Drug Possession - Misdemeanor, Assault/Public Servant, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Felony Arrest, Drug Possession - Misdemeanor, Resisting Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Felony Arrest, Evading Arrest, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Felony Arrest, Evading Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Felony Arrest, Evading Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Felony Arrest, Resisting Arrest, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Misdemeanor Arrest, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Misdemeanor Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Misdemeanor Arrest, Resisting Search and Transport, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Other Misdemeanor Arrest, Warrant/Hold, Other Felony Arrest, Drug Possession - Misdemeanor, Resisting Search and Transport"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Pedestrian In Roadway, Fail to ID, Resisting Search and Transport, Man/Del/Dangerous Drug"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Drug Possession - Felony, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Drug Possession - Felony, Fail to ID, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Drug Possession - Felony, Resisting Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Drug Possession - Misdemeanor, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Drug Possession - Misdemeanor, Resisting Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Drug Possession - Misdemeanor, Resisting Arrest, Resisting Search and Transport"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Drug Possession - Misdemeanor, Resisting Search and Transport"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Evading Arrest, Resisting Arrest, Drug Possession - Misdemeanor, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Other Felony Arrest, Resisting Search and Transport, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Drug Possession - Felony, Other Misdemeanor Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Resisting Search and Transport, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Resisting Search and Transport, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Public Intoxication, Warrant/Hold, Resisting Search and Transport, Drug Possession - Misdemeanor, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Resisting Arrest, Drug Possession - Felony, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Resisting Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Resisting Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Resisting Arrest, Manifest/Drug Sales, Drug Possession - Misdemeanor, Man/Del/Dangerous Drug"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Resisting Arrest, Unauthorize Use Vehicle, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Resisting Search and Transport, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Resisting Search and Transport, Drug Possession - Misdemeanor, Other Felony Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Theft, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Theft, Evading Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Theft, Evading Arrest, Other Felony Arrest, Other Misdemeanor Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Theft, Resisting Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Unauthorize Use Vehicle, Drug Possession - Felony, Evading Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Unauthorize Use Vehicle, Evading Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Unauthorize Use Vehicle, Resisting Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Drug Possession - Felony, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Drug Possession - Misdemeanor, Public Intoxication"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Drug Possession - Misdemeanor, Resisting Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Drug Possession - Misdemeanor, Resisting Search and Transport"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Evading Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Evading Arrest, Resisting Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Fail to ID, Resisting Arrest, Drug Possession - Misdemeanor"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Man/Del/Dangerous Drug"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Other Felony Arrest, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Drug Possession - Felony"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Drug Possession - Felony, Other Misdemeanor Arrest"] <- "Drug Possession"
+drug_crime[mydata[,i]=="Warrant/Hold, Resisting Search and Transport, Drug Possession - Misdemeanor"] <- "Drug Possession"
+###############################
+drug_crime[mydata[,i]=="Manifest/Drug Sales, Resisting Arrest, Warrant/Hold"] <- "Drug Sales"
+drug_crime[mydata[,i]=="Manifest/Drug Sales, Warrant/Hold, Drug Possession - Misdemeanor, Other Felony Arrest"] <- "Drug Sales"
+drug_crime[mydata[,i]=="Resisting Arrest, Manifest/Drug Sales, Drug Possession - Misdemeanor, Man/Del/Dangerous Drug"] <- "Drug Sales"
+drug_crime[mydata[,i]=="Evading Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor, Manifest/Drug Sales"] <- "Drug Sales"
+}
+drug_crime[drug_crime==0] <- NA
+mydata$Drug_Crime <- drug_crime
+
+mydata %>%
+   filter(!is.na(Drug_Crime)) %>%
+     ggplot(aes(x= Drug_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Drug Crime in Dallas 2016") + theme_bw()
+```
+
+From the bar plot above we can see that Drug Possession makes up the majority of the drug crime in Dallas with Drug Sales taking up a small minority.
+
+```{r, echo=FALSE}
+property_crime <- rep(0,nrow(mydata))
+for (i in 19) {
+property_crime[mydata[,i]=="Assault, Burglary/Habitation"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary, Evading Arrest"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Building"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Building, Crim Trespass/Bldg/Prop, Evading Arrest"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Building, Drug Possession - Felony"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Building, Warrant/Hold"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Assault"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Assault/FV"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Assault/Public Servant, Other Felony Arrest"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Criminal Mischief, Robbery"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Evading Arrest"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Evading Arrest, Fail to ID, Warrant/Hold"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Other Felony Arrest, Warrant/Hold"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Resisting Arrest"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Resisting Arrest, Resisting Search and Transport"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Unauthorize Use Vehicle, Evading Arrest"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Warrant/Hold, Drug Possession - Felony, Drug Possession - Misdemeanor"] <- "Burglary"
+property_crime[mydata[,i]=="Burglary/Habitation, Warrant/Hold, Other Felony Arrest"] <- "Burglary"
+property_crime[mydata[,i]=="Other Felony Arrest, Burglary/Habitation, Assault/FV"] <- "Burglary"
+property_crime[mydata[,i]=="Robbery, Burglary/Habitation"] <- "Burglary"
+property_crime[mydata[,i]=="Unauthorize Use Vehicle, Burglary/Habitation, Evading Arrest"] <- "Burglary"
+################################  
+property_crime[mydata[,i]=="Burglary of a Vehicle"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Criminal Mischief"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Criminal Mischief, Evading Arrest, Resisting Arrest, Warrant/Hold"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Criminal Mischief, Evading Arrest, Warrant/Hold"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Criminal Mischief, Fail to ID, Resisting Arrest"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Criminal Mischief, Resisting Arrest, Fail to ID"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Drug Possession - Felony"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Drug Possession - Felony, Drug Possession - Misdemeanor"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Escape"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Evading Arrest"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Evading Arrest, Warrant/Hold"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Evading Arrest, Warrant/Hold, Resisting Arrest"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Fail to ID, Warrant/Hold, Resisting Arrest"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Other Felony Arrest"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Resisting Arrest"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Resisting Arrest, Drug Possession - Misdemeanor"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Resisting Arrest, Fail to ID, Warrant/Hold"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Resisting Arrest, Warrant/Hold"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Theft"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Unauthorize Use Vehicle"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Burglary of a Vehicle, Warrant/Hold"] <- "Vehicle Theft"
+property_crime[mydata[,i]=="Evading Arrest, Burglary of a Vehicle, Other Misdemeanor Arrest, Warrant/Hold"] <- "Vehicle Theft"
+##############################
+property_crime[mydata[,i]=="Assault/FV, Other Felony Arrest, Robbery"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Assault/Public Servant, Robbery, Resisting Arrest"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Assault/Public Servant, Robbery, Resisting Search and Transport"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Burglary/Habitation, Criminal Mischief, Robbery"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Evading Arrest, Robbery"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Evading Arrest, Unauthorize Use Vehicle, Robbery"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Robbery"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Robbery, Burglary/Habitation"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Robbery, Evading Arrest"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Robbery, Evading Arrest, Other Agency Arrest"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Robbery, Other Felony Arrest, Evading Arrest"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Robbery, Take Weapon from PO"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Sexual Assault, Robbery"] <- "Robbery/Theft"
+property_crime[mydata[,i]=="Assault, Robbery"] <- "Robbery/Theft"
+################################
+property_crime[mydata[,i]=="Assault/Public Servant, Crim Trespass/Bldg/Prop, Evading Arrest"] <- "Trespassing"
+property_crime[mydata[,i]=="Assault/Public Servant, Crim Trespass/Bldg/Prop, Resisting Arrest"] <- "Trespassing"
+property_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest, Crim Trespass/Bldg/Prop"] <- "Trespassing"
+property_crime[mydata[,i]=="Burglary/Building, Crim Trespass/Bldg/Prop, Evading Arrest"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, APOWW"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Assault/Public Servant"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Fail to ID, Resisting Arrest"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, No Arrest"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Resisting Arrest"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Resisting Arrest, Assault/Public Servant"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Resisting Arrest, Fail to ID"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Resisting Arrest, Resisting Search and Transport"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Resisting Arrest, Warrant/Hold"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Resisting Search and Transport"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Warrant/Hold"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Hab/Weapon"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Hab/Weapon, Criminal Mischief, Resisting Arrest"] <- "Trespassing"
+property_crime[mydata[,i]=="Crim Trespass/Hab/Weapon, Resisting Arrest"] <- "Trespassing"
+property_crime[mydata[,i]=="Evading Arrest, Crim Trespass/Bldg/Prop, Resisting Arrest"] <- "Trespassing"
+property_crime[mydata[,i]=="Public Intoxication, Crim Trespass/Bldg/Prop, Warrant/Hold, Resisting Search and Transport"] <- "Trespassing"
+property_crime[mydata[,i]=="Warrant/Hold, Public Intoxication, Resisting Arrest, Crim Trespass/Bldg/Prop"] <- "Trespassing"
+}
+property_crime[property_crime==0] <- NA
+
+mydata$Property_Crime <- property_crime
+
+mydata %>%
+   filter(!is.na(Property_Crime)) %>%
+     ggplot(aes(x= Property_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Property Crime in Dallas 2016") + theme_bw()
+```
+
+From the bar plot above we can see that Trespassing is the highest type of Property Crime with Burglary and Vehicle Theft being second and third and Robbery/Theft last.
+
+```{r, echo=FALSE}
+traffic_crime <- rep(0,nrow(mydata))
+for (i in 19) {
+traffic_crime[mydata[,i]=="DUI, Fail to ID, Warrant/Hold"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DUI, Other Misdemeanor Arrest"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="Assault, DWI, Resisting Arrest"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Assault/Public Servant"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Assault/Public Servant, Drug Possession - Felony, Other Felony Arrest"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Criminal Mischief"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Drug Possession - Misdemeanor, Resisting Arrest, Escape"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, DWLI, Warrant/Hold, Other Misdemeanor Arrest"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, DWLS, Resisting Search and Transport"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Evading Arrest"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Other Misdemeanor Arrest, Drug Possession - Misdemeanor"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Resisting Arrest"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Resisting Arrest, DWLI"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Resisting Arrest, Escape, Drug Possession - Misdemeanor"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Resisting Arrest, Traffic Violation"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Resisting Arrest, Warrant/Hold, Assault"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Resisting Search and Transport"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Resisting Search and Transport, Drug Possession - Misdemeanor, Escape"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Resisting Search and Transport, Other Felony Arrest"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Resisting Search and Transport, Resisting Arrest, Other Felony Arrest"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="DWI, Warrant/Hold"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="Escape, Drug Possession - Misdemeanor, DWI, Resisting Arrest"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="Evading Arrest, Warrant/Hold, Other Felony Arrest, DWI"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="Resisting Arrest, DWI"] <- "DUI/DWI"
+traffic_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, DWI"] <- "DUI/DWI"
+###################################
+traffic_crime[mydata[,i]=="Assault, Traffic Violation"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="Criminal Mischief, Traffic Violation"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="DWI, Resisting Arrest, Traffic Violation"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="Other Misdemeanor Arrest, Traffic Violation"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="Resisting Arrest, Traffic Violation"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="Traffic Violation"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="Traffic Violation, Criminal Mischief"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="Traffic Violation, Evading Arrest, Other Misdemeanor Arrest"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="Traffic Violation, Evading Arrest, Resisting Arrest, Other Misdemeanor Arrest"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="Traffic Violation, Other Misdemeanor Arrest"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="Traffic Violation, Resisting Arrest"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="Traffic Violation, Warrant/Hold"] <- "Traffic Violation"
+traffic_crime[mydata[,i]=="Traffic Violation, Warrant/Hold, Evading Arrest"] <- "Traffic Violation"
+}
+traffic_crime[traffic_crime==0] <- NA
+mydata$Traffic_Crime <- traffic_crime
+
+mydata %>%
+   filter(!is.na(Traffic_Crime)) %>%
+     ggplot(aes(x= Traffic_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Traffic Crime in Dallas 2016") + theme_bw()
+```
+
+From the bar plot above we can see that DUI/DWI is the most frequent case of Traffic Crime, occurring nearly twice as much as Traffic Violations.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+misdemeanor_crime <- rep(0,nrow(mydata))
+for (i in 19) {
+misdemeanor_crime[mydata[,i]=="APOWW"] <- "APOWW"
+misdemeanor_crime[mydata[,i]=="APOWW, Assault/FV"] <- "APOWW"
+misdemeanor_crime[mydata[,i]=="APOWW, Assault/Public Servant"] <- "APOWW"
+misdemeanor_crime[mydata[,i]=="APOWW, Criminal Mischief"] <- "APOWW"
+misdemeanor_crime[mydata[,i]=="APOWW, Drug Possession - Misdemeanor"] <- "APOWW"
+misdemeanor_crime[mydata[,i]=="APOWW, Public Intoxication, Warrant/Hold"] <- "APOWW"
+misdemeanor_crime[mydata[,i]=="APOWW, Warrant/Hold"] <- "APOWW"
+misdemeanor_crime[mydata[,i]=="Assault/FV, APOWW"] <- "APOWW"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, APOWW"] <- "APOWW"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, APOWW, Other Felony Arrest"] <- "APOWW"
+misdemeanor_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, APOWW"] <- "APOWW"
+##############################
+misdemeanor_crime[mydata[,i]=="Assault, Assault/Public Servant, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault, Evading Arrest, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault, Other Felony Arrest, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Evading Arrest, Assault/Public Servant"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Evading Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Evading Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Evading Arrest, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Evading Arrest, Other Felony Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Evading Arrest, Other Misdemeanor Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Evading Arrest, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Evading Arrest, Resisting Arrest, Criminal Mischief"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Evading Arrest, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Evading Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Crim Trespass/Bldg/Prop, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest, Crim Trespass/Bldg/Prop"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest, No Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest, Resisting Arrest, Public Intoxication"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest, Resisting Search and Transport"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Public Intoxication, Evading Arrest, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Resisting Arrest, Evading Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Criminal Mischief, Evading Arrest, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Criminal Mischief, Evading Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Evading Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Evading Arrest, Warrant/Hold, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary/Building, Crim Trespass/Bldg/Prop, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary/Habitation, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary/Habitation, Evading Arrest, Fail to ID, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary/Habitation, Unauthorize Use Vehicle, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Criminal Mischief, Evading Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Disorderly Conduct, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Felony, Assault/FV, Drug Possession - Misdemeanor, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Felony, Drug Possession - Misdemeanor, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Felony, Drug Possession - Misdemeanor, Evading Arrest, Assault/FV, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Felony, Drug Possession - Misdemeanor, Evading Arrest, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Felony, Evading Arrest, Resisting Search and Transport"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Misdemeanor, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Misdemeanor, Evading Arrest, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Misdemeanor, Evading Arrest, Unauthorize Use Vehicle"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Misdemeanor, Evading Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Misdemeanor, Warrant/Hold, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="DWI, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Assault"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Assault/Public Servant"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Burglary of a Vehicle, Other Misdemeanor Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Crim Trespass/Bldg/Prop, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Criminal Mischief"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Disorderly Conduct"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor, Manifest/Drug Sales"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor, Warrant/Hold, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Drug Possession - Felony, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Drug Possession - Felony, Warrant/Hold, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Other Felony Arrest, Fail to ID, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Other Felony Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Unauthorize Use Vehicle"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Drug Possession - Misdemeanor, Warrant/Hold, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Escape, Resisting Search and Transport"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Escape, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Fail to ID"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Fail to ID, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Man/Del/Dangerous Drug, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Other Felony Arrest, Assault"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Other Felony Arrest, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Other Felony Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Public Intoxication"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Drug Possession - Felony, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Fail to ID, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Man/Del/Dangerous Drug"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Other Misdemeanor Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Take Weapon from PO"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Unauthorize Use Vehicle"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Arrest, Warrant/Hold, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Search and Transport, Drug Possession - Felony, Theft"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Search and Transport, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Robbery"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Theft"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Theft, Fail to ID"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Unauthorize Use Vehicle"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Unauthorize Use Vehicle, Robbery"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Warrant/Hold, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Warrant/Hold, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Warrant/Hold, Fail to ID"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Warrant/Hold, Murder"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Warrant/Hold, Other Felony Arrest, DWI"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Warrant/Hold, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Man/Del/Dangerous Drug, Evading Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Assault, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Evading Arrest, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Evading Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Evading Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Evading Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Evading Arrest, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Evading Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Evading Arrest, Warrant/Hold, Assault"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Resisting Search and Transport, Evading Arrest, Other Felony Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Evading Arrest, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Evading Arrest, Resisting Arrest, Drug Possession - Misdemeanor, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Evading Arrest, Resisting Search and Transport"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Evading Arrest, Assault/FV"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Robbery, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Robbery, Evading Arrest, Other Agency Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Robbery, Other Felony Arrest, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Take Weapon from PO, Evading Arrest, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Theft, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Theft, Evading Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Theft, Evading Arrest, Other Felony Arrest, Other Misdemeanor Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Theft, Other Misdemeanor Arrest, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Traffic Violation, Evading Arrest, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Traffic Violation, Evading Arrest, Resisting Arrest, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Traffic Violation, Warrant/Hold, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Unauthorize Use Vehicle, Burglary/Habitation, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Unauthorize Use Vehicle, Drug Possession - Felony, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Unauthorize Use Vehicle, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Unauthorize Use Vehicle, Evading Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Unauthorize Use Vehicle, Evading Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Unauthorize Use Vehicle, Fail to ID, Resisting Arrest, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Evading Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Evading Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Evading Arrest, Resisting Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Evading Arrest, Resisting Arrest, Take Weapon from PO"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault, DWI, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault, Fail to ID, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault, Fail to ID, Resisting Search and Transport"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault, Resisting Arrest, Other Felony Arrest, Fail to ID"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault, Resisting Arrest, Warrant/Hold, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Drug Possession - Misdemeanor, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Fail to ID, Resisting Arrest, Other Misdemeanor Arrest, Warrant/Hold, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Fail to ID, Resisting Arrest, Warrant/Hold, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Resisting Search and Transport, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/FV, Resisting Arrest, Warrant/Hold, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Assault/FV, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Crim Trespass/Bldg/Prop, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Criminal Mischief, Fail to ID, Resisting Arrest, Public Intoxication"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Resisting Arrest, Fail to ID"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Robbery, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Criminal Mischief, Fail to ID, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Criminal Mischief, Resisting Arrest, Fail to ID"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Fail to ID, Warrant/Hold, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Resisting Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Resisting Arrest, Fail to ID, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary of a Vehicle, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Burglary/Habitation, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Fail to ID, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Resisting Arrest, Assault/Public Servant"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Resisting Arrest, Fail to ID"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Crim Trespass/Bldg/Prop, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Crim Trespass/Hab/Weapon, Criminal Mischief, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Crim Trespass/Hab/Weapon, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Criminal Mischief, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Criminal Mischief, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Curfew Violation, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Disorderly Conduct, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Disorderly Conduct, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Felony, Other Felony Arrest, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Felony, Public Intoxication, Resisting Arrest, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Misdemeanor, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Misdemeanor, Resisting Arrest, Fail to ID"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Misdemeanor, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="DWI, Drug Possession - Misdemeanor, Resisting Arrest, Escape"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="DWI, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="DWI, Resisting Arrest, DWLI"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="DWI, Resisting Arrest, Escape, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="DWI, Resisting Arrest, Traffic Violation"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="DWI, Resisting Arrest, Warrant/Hold, Assault"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Escape, Drug Possession - Misdemeanor, DWI, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Fail to ID, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Fail to ID, Resisting Arrest, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Fail to ID, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Fail to ID, Warrant/Hold, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Man/Del/Dangerous Drug, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Man/Del/Dangerous Drug, Resisting Arrest, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Manifest/Drug Sales, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Drug Possession - Misdemeanor, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Resisting Arrest, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Warrant/Hold, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Resisting Arrest, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Warrant/Hold, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Prostitution, Resisting Arrest, Assault/Public Servant, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Prostitution, Resisting Arrest, Criminal Mischief"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Prostitution, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Criminal Mischief, Fail to ID, Assault/Public Servant, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Criminal Mischief, Resisting Arrest, Fail to ID, Assault/Public Servant"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Disorderly Conduct, Other Misdemeanor Arrest, Resisting Arrest, Fail to ID"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Drug Possession - Felony, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Drug Possession - Misdemeanor, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Fail to ID, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Assault/Public Servant"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Disorderly Conduct"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Drug Possession - Felony, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Fail to ID, Warrant/Hold, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Warrant/Hold, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Assault"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Assault/FV"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Assault/Public Servant"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Assault/Public Servant, Fail to ID"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Criminal Mischief, Fail to ID, Theft"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Disorderly Conduct"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Drug Possession - Felony, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, DWI"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Fail to ID"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Fail to ID, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Manifest/Drug Sales, Drug Possession - Misdemeanor, Man/Del/Dangerous Drug"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Other Felony Arrest, Deadly Conduct, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Other Felony Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Other Misdemeanor Arrest, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Other Misdemeanor Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Public Intoxication"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Public Intoxication, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Public Intoxication, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Traffic Violation"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Unauthorize Use Vehicle, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Warrant/Hold, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Warrant/Hold, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Take Weapon from PO, Resisting Arrest, Public Intoxication, Warrant/Hold, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Theft, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Theft, Resisting Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Traffic Violation, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Unauthorize Use Vehicle, Resisting Arrest, Drug Possession - Felony, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Drug Possession - Misdemeanor, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Escape, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Fail to ID, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Fail to ID, Resisting Arrest, Drug Possession - Misdemeanor"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Other Misdemeanor Arrest, DWLS, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Public Intoxication, Resisting Arrest, Crim Trespass/Bldg/Prop"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Assault"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Drug Possession - Felony"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Drug Possession - Felony, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, DWI"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Fail to ID, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Man/Del/Dangerous Drug"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Other Felony Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Public Intoxication, Take Weapon from PO, Other Misdemeanor Arrest"] <- "Evading/Resisting Arrest"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Resisting Search and Transport, Fail to ID"] <- "Evading/Resisting Arrest"
+###############################################
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Search and Transport, Drug Possession - Felony, Theft"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Resisting Search and Transport, Warrant/Hold"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Fail to ID, Resisting Search and Transport"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Fail to ID, Resisting Search and Transport, Warrant/Hold"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Assault, Resisting Search and Transport"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Assault, Resisting Search and Transport, Other Misdemeanor Arrest"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Assault, Resisting Search and Transport, Warrant/Hold"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Resisting Search and Transport"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Resisting Search and Transport, Drug Possession - Felony"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Resisting Search and Transport, Evading Arrest, Other Felony Arrest, Warrant/Hold"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Warrant/Hold, Other Felony Arrest, Drug Possession - Misdemeanor, Resisting Search and Transport"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Pedestrian In Roadway, Fail to ID, Resisting Search and Transport, Man/Del/Dangerous Drug"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Resisting Search and Transport"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Assault"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Assault/FV"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, City Ordinance Violation, Warrant/Hold"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Criminal Mischief, Warrant/Hold"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Drug Possession - Misdemeanor"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Drug Possession - Misdemeanor, Other Felony Arrest"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, DWLI, Other Misdemeanor Arrest"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Man/Del/Dangerous Drug"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Other Felony Arrest"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Other Felony Arrest, Other Misdemeanor Arrest"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Other Misdemeanor Arrest"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Pedestrian In Roadway"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Public Intoxication"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Warrant/Hold"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Theft, Resisting Search and Transport"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Drug Possession - Misdemeanor, Resisting Search and Transport"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Resisting Search and Transport, Fail to ID"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Search and Transport"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Search and Transport, Assault/Public Servant"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Search and Transport, Drug Possession - Misdemeanor"] <- "Resisting Search/Transport"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Search and Transport, Other Felony Arrest"] <- "Resisting Search/Transport"
+################################
+misdemeanor_crime[mydata[,i]=="APOWW, Public Intoxication, Warrant/Hold"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Assault, Fail to ID, Theft, Public Intoxication, Resisting Search and Transport, Other Misdemeanor Arrest, Other Felony Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Assault, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Criminal Mischief, Fail to ID, Resisting Arrest, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Evading Arrest, Resisting Arrest, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Public Intoxication, Evading Arrest, Resisting Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Assault/Public Servant, Public Intoxication, Theft"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="City Ordinance Violation, Public Intoxication, Other Felony Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Criminal Mischief, Public Intoxication, Resisting Search and Transport"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Disorderly Conduct, Public Intoxication, Warrant/Hold"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Felony, Drug Possession - Misdemeanor, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Felony, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Felony, Public Intoxication, Resisting Arrest, Other Misdemeanor Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Drug Possession - Misdemeanor, Public Intoxication, Warrant/Hold"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Evading Arrest, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Other Felony Arrest, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Other Misdemeanor Arrest, Warrant/Hold, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Assault"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Assault/Public Servant"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Crim Trespass/Bldg/Prop, Warrant/Hold, Resisting Search and Transport"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Criminal Mischief"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Criminal Mischief, Escape"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Criminal Mischief, Fail to ID, Assault/Public Servant, Resisting Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Criminal Mischief, Resisting Arrest, Fail to ID, Assault/Public Servant"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Criminal Mischief, Resisting Search and Transport"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Disorderly Conduct"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Disorderly Conduct, Other Misdemeanor Arrest, Resisting Arrest, Fail to ID"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Drug Possession - Felony"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Drug Possession - Felony, Drug Possession - Misdemeanor"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Drug Possession - Felony, Fail to ID, Warrant/Hold"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Drug Possession - Felony, Resisting Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Drug Possession - Misdemeanor"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Drug Possession - Misdemeanor, Other Felony Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Drug Possession - Misdemeanor, Resisting Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Drug Possession - Misdemeanor, Resisting Arrest, Resisting Search and Transport"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Drug Possession - Misdemeanor, Resisting Search and Transport"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Escape, Criminal Mischief"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Evading Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Evading Arrest, Resisting Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Evading Arrest, Resisting Arrest, Drug Possession - Misdemeanor, Drug Possession - Felony"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Evading Arrest, Resisting Search and Transport"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Fail to ID"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Fail to ID, Resisting Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Other Felony Arrest, Resisting Search and Transport, Drug Possession - Misdemeanor"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Other Misdemeanor Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Assault/Public Servant"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Disorderly Conduct"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Drug Possession - Felony, Other Misdemeanor Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Drug Possession - Misdemeanor"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Evading Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Fail to ID, Warrant/Hold, Other Felony Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Other Misdemeanor Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Arrest, Warrant/Hold"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Search and Transport"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Search and Transport, Assault/Public Servant"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Search and Transport, Criminal Mischief"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Search and Transport, Drug Possession - Felony"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Resisting Search and Transport, Drug Possession - Misdemeanor, Warrant/Hold"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Warrant/Hold"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Warrant/Hold, Resisting Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Public Intoxication, Warrant/Hold, Resisting Search and Transport, Drug Possession - Misdemeanor, Other Felony Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Public Intoxication, Other Felony Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Resisting Arrest, Public Intoxication, Warrant/Hold"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Resisting Search and Transport, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Take Weapon from PO, Resisting Arrest, Public Intoxication, Warrant/Hold, Other Misdemeanor Arrest"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Theft, Public Intoxication, Assault/Public Servant"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Drug Possession - Misdemeanor, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Public Intoxication"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Public Intoxication, Resisting Arrest, Crim Trespass/Bldg/Prop"] <- "Public Intoxication"
+misdemeanor_crime[mydata[,i]=="Warrant/Hold, Resisting Arrest, Public Intoxication, Take Weapon from PO, Other Misdemeanor Arrest"] <- "Public Intoxication"
+}
+misdemeanor_crime[misdemeanor_crime==0] <- NA
+mydata$Misdemeanor_Crime <- misdemeanor_crime
+
+mydata %>%
+   filter(!is.na(Misdemeanor_Crime)) %>%
+     ggplot(aes(x= Misdemeanor_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Misdemeanor Crime in Dallas 2016") + theme_bw()
+
+mydata_ViolentCrime <- mydata %>% group_by(SUBJECT_RACE, Violent_Crime) %>% summarize(count=n())
+
+mydata_DrugCrime <- mydata %>% group_by(SUBJECT_RACE, Drug_Crime) %>% summarize(count=n())
+
+mydata_PropertyCrime <- mydata %>% group_by(SUBJECT_RACE, Property_Crime) %>% summarize(count=n())
+
+mydata_TrafficCrime <- mydata %>% group_by(SUBJECT_RACE, Traffic_Crime) %>% summarize(count=n())
+
+mydata_MisdemeanorCrime <- mydata %>% group_by(SUBJECT_RACE, Misdemeanor_Crime) %>% summarize(count=n())
+
+```
+
+From the bar plot above we can see that Evading/Resisting Arrest is the highest type of Misdemeanor Crime followed by APOWW (Apprehension by Peace Officer Without Warrant - where people are detained by a police officer without warrant for a mental health evaluation) at second place and Public Intoxication and Resisting Search/Transport at third and fourth respectively. 
+
+
+# A Closer Look: Violent Crime in Dallas 
+We can take a closer look at violent crime in Dallas by looking at the geographical locations of where violent crime has taken place.
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+vcpal <- colorFactor(c("red", "deepskyblue", "navy", "black", "deeppink"), mydata$Violent_Crime, n = 5)
+mydata %>%
+  leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(data = mydata[mydata$Violent_Crime=="Assault",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Assault", color="red") %>%  
+  
+addCircleMarkers(data = mydata[mydata$Violent_Crime=="Domestic Violence",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Domestic Violence", color="deepskyblue") %>% 
+  
+addCircleMarkers(data = mydata[mydata$Violent_Crime=="Firearms/Weapons Offense",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Firearms/Weapons Offense", color="navy") %>% 
+  
+addCircleMarkers(data = mydata[mydata$Violent_Crime=="Sexual Crimes",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Sexual Crimes", color="deeppink") %>% 
+  
+addCircleMarkers(data = mydata[mydata$Violent_Crime=="Murder",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Murder", color="black") %>% 
+  
+addLegend(pal = vcpal, position = "topright", values=mydata$Violent_Crime, title = "Type of crime", opacity = 1) %>%
+
+addLayersControl(overlayGroups = c("Assault", "Domestic Violence", "Firearms/Weapons Offense", "Sexual Crimes", "Murder"), position = "bottomright")
+```
+
+From the map above and filtering out the other types of crime we can see that Domestic Violence (the highest case of violent crime in the data set) is largely taking place in the outskirts of the city centre in the suburban areas with some taking place in the city centre. 
+
+
+Looking at Assault (the second highest case of violent crime) you can see it largely being concentrated in central Dallas with a small minority in the suburban outskirts.
+
+
+For the remaining crimes there is not enough data to gauge some sort of pattern in the geographical location where the crime has taken place. 
+
+
+We can look at where violent crime is more concentrated by breaking it down to the different divisions in the city.
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=FALSE}
+mydata %>%
+   filter(!is.na(Violent_Crime)) %>%
+     ggplot(aes(x= Violent_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Violent Crime in Dallas by Division") + theme_bw() +  facet_wrap(~DIVISION,  nrow = 3)+
+  scale_x_discrete(guide = guide_axis(n.dodge=5))
+
+```
+
+
+From the plot above we can see  that the western part of the city (CENTRAL, NORTHWEST and SOUTHWEST) have the highest cases for Assault and the eastern parts (NORTH CENTRAL, SOUTH CENTRAL, NORTHEAST, and SOUTHEAST) have the highest cases of Domestic Violence.
+
+
+We can also look at rates of violent crime broken down by the race of the suspects.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mydata %>%
+   filter(!is.na(Violent_Crime)) %>%
+     ggplot(aes(x= Violent_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Violent Crime in Dallas by Race") + theme_bw() +  facet_wrap(~SuspectRaceReduced,  nrow = 3)+
+  scale_x_discrete(guide = guide_axis(n.dodge=5))+ 
+theme_bw()
+
+total1 <- c(276, 114, 8, 82)
+ViolentCrimeRace <- data.frame(Race, total1)
+ViolentCrimeRace <- ViolentCrimeRace %>%   mutate(perc = `total1` / sum(`total1`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(ViolentCrimeRace, aes(x="", y=perc, fill=Race)) +geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Suspect Race", values=c("deepskyblue", "chartreuse", "pink", "blue")) + ggtitle("Pie chart of Violent Crime against Race") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+```
+
+
+From the bar plot above we can see that Black suspects are by far the biggest perpetrators of Assault and Domestic Violence by having the highest count in the data set and are then followed by Hispanic and White suspects. 
+
+
+From the pie chart above we can see that Black suspects have the biggest count of Violent Crime proportionally at 57.5% followed by Hispanic suspects and White suspects at 23.7% and 17.1% respectively with the remaining races at 1.7%.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ViolentCrimeTS <- mydata %>% group_by(INCIDENT_MONTH, Violent_Crime) %>% summarize(count = n())
+
+ggplot() + geom_line(data=subset(ViolentCrimeTS, Violent_Crime=="Assault" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Assault"),group=1 ,size=1 ) + geom_line(data=subset(ViolentCrimeTS, Violent_Crime=="Domestic Violence" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Domestic Violence"),group=1,size=1 ) + labs(x="Months", y= "count", title="Violent Crime Time Series Plot", colour= "Legend") + scale_color_manual(values= c("black", "red"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=2)) + theme_bw()
+```
+
+
+From the plot above we can see that for the highest type of Violent Crime in Dallas (Domestic Violence & Assault) that they both peak near the beginning of the year and start to decrease and forming a small peak in the summer till decreasing again to the end of the year.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mydata$INCIDENT_TIME <- format(strptime(mydata$INCIDENT_TIME, "%I:%M:%S %p"), "%H:%M:%S")
+mydata$Incident_Hour <- substr(mydata$INCIDENT_TIME, 0, 2)
+
+ViolentCrimeHour <- mydata %>% group_by(Incident_Hour, Violent_Crime) %>% summarize(count=n())
+```
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot() + geom_line(data=subset(ViolentCrimeHour, Violent_Crime=="Assault" ) ,aes(y=count,x= Incident_Hour, colour="Assault"),group=1 ,size=1 ) + geom_line(data=subset(ViolentCrimeHour, Violent_Crime=="Domestic Violence" ) ,aes(y=count,x= Incident_Hour, colour="Domestic Violence"),group=1,size=1 ) + labs(x="Hour", y= "count", title="Violent Crime Time Series Plot by Hours in a Day", colour= "Legend") + scale_color_manual(values= c("black", "red"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=2)) + theme_bw()
+```
+
+
+From the time series plot above we can see that Assault is most common in the evening and late at night having its biggest peaks in 19:00 and 02:00 whilst having its lowest points during the early in the morning at 05:00 and 10:00. For Domestic Violence we can see that it has its biggest peak in in the evening at 18:00 and at night at 22:00.
+
+
+# A Closer Look: Drug Crime in Dallas
+Similar to what we have done for violent crime we can create a map below to see if we can observe any pattern in the geographical locations of drug crime in Dallas.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+dcpal <- colorFactor(c("limegreen", "deeppink"), mydata$Drug_Crime, n = 2)
+mydata %>%
+  leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(data = mydata[mydata$Drug_Crime=="Drug Possession",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Drug Possession", color="limegreen") %>%  
+  
+addCircleMarkers(data = mydata[mydata$Drug_Crime=="Drug Sales",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Drug Sales", color="deeppink") %>% 
+  
+addLegend(pal = dcpal, position = "topright", values=mydata$Drug_Crime, title = "Type of crime", opacity = 1) %>%
+
+addLayersControl(overlayGroups = c("Drug Possession", "Drug Sales"), position = "bottomright")
+```
+
+
+From the map above we can see that Drug Possession is mainly concentrated in central Dallas and reaching out to the outskirts of the city centre in a cobweb-like pattern. We can also break down the rate of drug crime into the different divisions to get a more objective look into which areas have higher cases of drug crime.
+
+
+```{r, echo=FALSE}
+mydata %>%
+   filter(!is.na(Drug_Crime)) %>%
+     ggplot(aes(x= Drug_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Drug Crime in Dallas by Division") + theme_bw() + facet_wrap(~DIVISION,  nrow = 3)
+```
+
+
+From looking at the plot above we can see that the eastern region of Dallas (CENTRAL, NORTHEAST and SOUTHEAST) have the highest count of Drug Possession and having nearly twice as many charges in individual western regions (NORTH CENTRAL, SOUTH CENTRAL, NORTHWEST and SOUTHWEST).
+
+
+We can plot the rate of drug crime against the race of the suspects arrested below.
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+mydata %>%
+   filter(!is.na(Drug_Crime)) %>%
+     ggplot(aes(x= Drug_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Drug Crime in Dallas by Race") + theme_bw() + facet_wrap(~SuspectRaceReduced,  nrow = 3)
+
+
+total2 <- c(160, 49, 3, 36)
+DrugCrimeRace <- data.frame(Race, total2)
+DrugCrimeRace <- DrugCrimeRace %>%   mutate(perc = `total2` / sum(`total2`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(DrugCrimeRace, aes(x="", y=perc, fill=Race)) +geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Suspect Race", values=c("deepskyblue", "chartreuse", "pink", "blue")) + ggtitle("Pie chart of Drug Crime against Race") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+```
+
+
+From the plot above we can see that Black suspects have the highest number of charges for Drug Possession followed by Hispanic suspects and White suspects.
+
+
+From the pie chart above we can see that Black suspects have the biggest count of Drug Crime proportionally at 64.5% followed by Hispanic and White suspects at 19.8% and 14.5% respectively and Other at 1.2%.
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+DrugCrimeTS <- mydata %>% group_by(INCIDENT_MONTH, Drug_Crime) %>% summarize(count = n())
+
+ggplot() + geom_line(data=subset(DrugCrimeTS, Drug_Crime=="Drug Possession" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Drug Possession"),group=1 ,size=1 ) + labs(x="Months", y= "count", title="Drug Crime Time Series Plot", colour= "Legend") + scale_color_manual(values= c("deepskyblue"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=1)) + theme_bw()
+```
+
+
+
+From the plot above we can see that Drug Possession is at its peak in the beginning of the year in February with smaller peaks in the summer months of June and July and in November. It also has dips in March and July and in the autumn months of September and October and reaching its lowest point near the end of the year in December.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+DrugCrimeHour <- mydata %>% group_by(Incident_Hour, Drug_Crime) %>% summarize(count=n())
+
+ggplot() + geom_line(data=subset(DrugCrimeHour, Drug_Crime=="Drug Possession" ) ,aes(y=count,x= Incident_Hour, colour="Drug Possession"),group=1 ,size=1 ) + labs(x="Hour", y= "count", title="Drug Crime Time Series Plot by Hours in Day", colour= "Legend") + scale_color_manual(values= c("deepskyblue"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=2)) + theme_bw()
+```
+
+
+From the time series plot above we can see that Drug Possession is most common late in the night having its peak at midnight with smaller peaks in the evening as well. It is least common in the morning having its lowest count at 06:00 and 10:00.
+
+
+# A Closer Look: Property Crime in Dallas
+We can map the different locations of where property crime has occurred below.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+pcpal <- colorFactor(c("black", "blue", "springgreen", "red"), mydata$Property_Crime, n = 4)
+mydata %>%
+  leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(data = mydata[mydata$Property_Crime=="Burglary",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Burglary", color="black") %>%  
+
+addCircleMarkers(data = mydata[mydata$Property_Crime=="Robbery/Theft",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Robbery/Theft", color="blue") %>%
+ 
+addCircleMarkers(data = mydata[mydata$Property_Crime=="Trespassing",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Trespassing", color="springgreen") %>% 
+   
+addCircleMarkers(data = mydata[mydata$Property_Crime=="Vehicle Theft",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Vehicle Theft", color="red") %>% 
+  
+addLegend(pal = pcpal, position = "topright", values=mydata$Property_Crime, title = "Type of crime", opacity = 1) %>%
+
+addLayersControl(overlayGroups = c("Burglary", "Robbery/Theft",  "Trespassing", "Vehicle Theft"), position = "bottomright")
+```
+
+
+From the map above we can see that Trespassing (the highest type of property crime) being mainly concentrated in central Dallas and that Burglary (the second highest type of property crime) mainly occurring in central Dallas and stretching out to the southern outskirts of the city centre. For Vehicle Theft it is more spread evenly in the city with some concentration in the city centre and in the north. For Robbery/Theft it is well spread between the city centre and northern and eastern parts of the city.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mydata %>%
+   filter(!is.na(Property_Crime)) %>%
+     ggplot(aes(x= Property_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Property Crime in Dallas by Division") + theme_bw() + facet_wrap(~DIVISION,  nrow = 3) + scale_x_discrete(guide = guide_axis(n.dodge=5))
+```
+
+
+From the plot above we can see that burglary is most common in the central part of Dallas and southeastern regions of the city (NORTH CENTRAL, CENTRAL and SOUTHEAST). For Robbery/Theft it is evenly spread among the central and eastern divisions (NORTH CENTRAL, CENTRAL, SOUTH CENTRAL, NORTHEAST and SOUTHEAST). For Trespassing it is more common along the central and eastern divisions of the city (CENTRAL, NORTH CENTRAL and NORTHEAST). For Vehicle/Theft it is evenly spread across the different divisions with some slight increase in central and eastern divisions (NORTH CENTRAL, CENTRAL and NORTHEAST).
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mydata %>%
+   filter(!is.na(Property_Crime)) %>%
+     ggplot(aes(x= Property_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Property Crime in Dallas by Race") + theme_bw() + facet_wrap(~SuspectRaceReduced,  nrow = 3) + scale_x_discrete(guide = guide_axis(n.dodge=5))
+
+
+total3 <- c(93, 31, 5, 53)
+PropertyCrimeRace <- data.frame(Race, total3)
+PropertyCrimeRace <- PropertyCrimeRace %>%   mutate(perc = `total3` / sum(`total3`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(PropertyCrimeRace, aes(x="", y=perc, fill=Race)) +geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Suspect Race", values=c("deepskyblue", "chartreuse", "pink", "blue")) + ggtitle("Pie chart of Property Crime against Race") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+```
+
+
+From the plot above we can see that the biggest perpetrators of Trespassing , Burglary and Robbery/Theft are Black suspects. We can also see that White suspects are the biggest perpetrators of Vehicle Theft followed closely behind by Black suspects.
+
+
+From the pie chart we can see that Black suspects have the biggest count of Property Crime proportionally at 51% with White and Hispanic suspects at 29% and 17% respectively and Other at 3%.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+PropertyCrimeTS <- mydata %>% group_by(INCIDENT_MONTH, Property_Crime) %>% summarize(count = n())
+
+ggplot() + geom_line(data=subset(PropertyCrimeTS, Property_Crime=="Trespassing" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Trespassing"),group=1 ,size=1 ) + geom_line(data=subset(PropertyCrimeTS, Property_Crime=="Burglary" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Burglary"),group=1,size=1 ) + labs(x="Months", y= "count", title="Property Crime Time Series Plot", colour= "Legend") + scale_color_manual(values= c("black", "deepskyblue"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=2)) + theme_bw()
+```
+
+
+From the time series plot above we can see that for Trespassing it reaches its peak in March and its lowest point the month after in April and slowly increasing till it dips in the autumn months of October and November. For Burglary we can see that it is at its lowest point in the beginning of the year in January but slowly increasing with small peaks in March, June and reaching its biggest peak in October.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+PropertyCrimeHour <- mydata %>% group_by(Incident_Hour, Property_Crime) %>% summarize(count=n())
+
+ggplot() + geom_line(data=subset(PropertyCrimeHour, Property_Crime=="Burglary" ) ,aes(y=count,x= Incident_Hour, colour="Burglary"),group=1 ,size=1 ) + geom_line(data=subset(PropertyCrimeHour, Property_Crime=="Trespassing" ) ,aes(y=count,x= Incident_Hour, colour="Trespassing"),group=1 ,size=1 ) + labs(x="Hour", y= "count", title="Property Crime Time Series Plot by Hours in Day", colour= "Legend") + scale_color_manual(values= c("deepskyblue", "black"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=2)) + theme_bw()
+```
+
+
+From the time series plot above we can see that Burglary is most common late at night being most common at 03:00 and in the morning and evening having peaks at 10:00 and 20:00 and having its lowest numbers in the early morning and afternoon. For Trespassing we can see that it is most common in the evening at 19:00 and in the afternoon and night having peaks at 13:00 and 21:00. Trespassing has its lowest numbers in the afternoon and evening at 15:00 and 20:00.
+
+
+# A Closer Look: Traffic Crime in Dallas
+We can map the different locations of where traffic crime has occurred below.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+tcpal <- colorFactor(c("red", "blue"), mydata$Traffic_Crime, n = 2)
+mydata %>%
+  leaflet() %>%
+  addTiles() %>%
+addCircleMarkers(data = mydata[mydata$Traffic_Crime=="DUI/DWI",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "DUI/DWI", color="red") %>%  
+
+addCircleMarkers(data = mydata[mydata$Traffic_Crime=="Traffic Violation",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Traffic Violation", color="blue") %>%
+  
+addLegend(pal = tcpal, position = "topright", values=mydata$Traffic_Crime, title = "Type of crime", opacity = 1) %>%
+
+addLayersControl(overlayGroups = c("DUI/DWI", "Traffic Violation"), position = "bottomright")
+```
+
+
+From the map above we can see that DUI/DWI are most common in central Dallas and in western Dallas and slightly less common in the east. Traffic Violations are more common in Northern Dallas with a slight increase in the northwestern region of Dallas compared to the northeast.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mydata %>%
+   filter(!is.na(Traffic_Crime)) %>%
+     ggplot(aes(x= Traffic_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Traffic Crime in Dallas by Division") + theme_bw() + facet_wrap(~DIVISION,  nrow = 3)
+```
+
+
+Looking at the plot above we can see that DUI/DWI offenses are mostly common in central and western divisions of Dallas (CENTRAL, SOUTH CENTRAL, NORTHWEST and SOUTHWEST) and slightly less common in the eastern divisions of Dallas (NORTHEAST and SOUTHEAST). From the plot above we can also see that Traffic Violations are most common in the northern and western divisions (NORTH CENTRAL and NORTHWEST) and are spread more evenly across the remaining divisions (CENTRAL, SOUTHWEST, SOUTH CENTRAL, NORTHEAST and SOUTHEAST).
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mydata %>%
+   filter(!is.na(Traffic_Crime)) %>%
+     ggplot(aes(x= Traffic_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Traffic Crime in Dallas by Race") + theme_bw() + facet_wrap(~SuspectRaceReduced,  nrow = 3)
+
+
+total4 <- c(42, 34, 3, 10)
+TrafficCrimeRace <- data.frame(Race, total4)
+TrafficCrimeRace <- TrafficCrimeRace %>%   mutate(perc = `total4` / sum(`total4`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(TrafficCrimeRace, aes(x="", y=perc, fill=Race)) +geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Suspect Race", values=c("deepskyblue", "chartreuse", "pink", "blue")) + ggtitle("Pie chart of Traffic Crime against Race") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+```
+
+
+From the plot above we can see that Black and Hispanic suspects are the biggest perpetrators of DUI/DWI offenses with White suspects being last. Similarly for Traffic Violations Black and Hispanic suspects have the biggest count of offenses with Black suspects having slightly more than Hispanic suspects and White suspects being last.
+
+
+From the pie chart above we can see that Black suspects have the biggest count of Traffic Crime proportionally at 47.2% with Hispanic and White suspects at 38.2% and 11.2% respectively with Other at 3.4%.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+TrafficCrimeTS <- mydata %>% group_by(INCIDENT_MONTH, Traffic_Crime) %>% summarize(count = n())
+
+ggplot() + geom_line(data=subset(TrafficCrimeTS, Traffic_Crime=="DUI/DWI" ) ,aes(y=count,x= INCIDENT_MONTH, colour="DUI/DWI"),group=1 ,size=1 ) + geom_line(data=subset(TrafficCrimeTS, Traffic_Crime=="Traffic Violation" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Traffic Violation"),group=1,size=1 ) + labs(x="Months", y= "count", title="Traffic Crime Time Series Plot", colour= "Legend") + scale_color_manual(values= c("black", "deepskyblue"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=2)) + theme_bw()
+```
+
+
+From the time series plot above we can see that for DUI/DWI it has a large peak in October and reaches its lowest point in the end of the year in December. For Traffic Violation it reaches its peaj in June and its lowest point in August and December.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+TrafficCrimeHour <- mydata %>% group_by(Incident_Hour, Traffic_Crime) %>% summarize(count=n())
+
+ggplot() + geom_line(data=subset(TrafficCrimeHour, Traffic_Crime=="DUI/DWI" ) ,aes(y=count,x= Incident_Hour, colour="DUI/DWI"),group=1 ,size=1 ) + geom_line(data=subset(TrafficCrimeHour, Traffic_Crime=="Traffic Violation" ) ,aes(y=count,x= Incident_Hour, colour="Traffic Violation"),group=1 ,size=1 ) + labs(x="Hour", y= "count", title="Traffic Crime Time Series Plot by Hours in Day", colour= "Legend") + scale_color_manual(values= c("deepskyblue", "black"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=2)) + theme_bw()
+```
+
+
+From the time series plot above we can see that for DUI/DWI it is most common at night having its peak at 21:00 and late at night and afternoon having smaller peaks at 03:00, 17:00 and 19:00 and being least common early in the morning and afternoon and evening having its smallest peaks in 05:00, 15:00 and 20:00. For Traffic Violation it is most common in the evening at 20:00 and having smaller peaks early in the morning, afternoon and at night at 06:00, 13:00 and 22:00. Traffic Violation is also least common early in the morning, in the afternoon and at night at 10:00, 17:00 and 21:00.
+
+
+# A Closer Look: Misdemeanor Crime in Dallas
+We can map the location of Misdemeanor offenses in Dallas below.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mcpal <- colorFactor(c("black", "blue", "springgreen", "red"), mydata$Misdemeanor_Crime, n = 4)
+mydata %>%
+  leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(data = mydata[mydata$Misdemeanor_Crime=="APOWW",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "APOWW", color="black") %>%  
+
+addCircleMarkers(data = mydata[mydata$Misdemeanor_Crime=="Evading/Resisting Arrest",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Evading/Resisting Arrest", color="blue") %>%
+ 
+addCircleMarkers(data = mydata[mydata$Misdemeanor_Crime=="Public Intoxication",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Public Intoxication", color="springgreen") %>% 
+   
+addCircleMarkers(data = mydata[mydata$Misdemeanor_Crime=="Resisting Search/Transport",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Resisting Search/Transport", color="red") %>% 
+  
+addLegend(pal = mcpal, position = "topright", values=mydata$Misdemeanor_Crime, title = "Type of crime", opacity = 1) %>%
+
+addLayersControl(overlayGroups = c("APOWW", "Evading/Resisting Arrest", "Public Intoxication", "Resisting Search/Transport"), position = "bottomright")
+```
+
+
+From the map above we can see that APOWW are most common in the city centre and in the eastern regions. Evading/Resisting Arrest is similarly most common central Dallas and in the east. Public Intoxication is largely concentrated in the city centre then scattered evenly to the outskirts of the city. Resisting Search/Transport is more or less spread evenly throughout the city with a slight increase in the city centre.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mydata %>%
+   filter(!is.na(Misdemeanor_Crime)) %>%
+     ggplot(aes(x= Misdemeanor_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Misdemeanor Crime in Dallas by Division") + theme_bw() + facet_wrap(~DIVISION,  nrow = 3) + scale_x_discrete(guide = guide_axis(n.dodge=5))
+```
+
+
+From the plot above we can see that APOWW is most common in the central divisions and eastern divisions (CENTRAL, NORTH CENTRAL, SOUTH CENTRAL, NORTHEAST and SOUTHEAST) and less common in the western divisions (NORTHWEST and SOUTHWEST). For Evading/Resisting Arrest it is similarly more common in the central divisions and eastern divisions (CENTRAL, SOUTH CENTRAL, NORTHEAST and SOUTHEAST). For Public Intoxication it is by far most common in the central division (CENTRAL) and the remaining counts spread evenly across the different divisions (NORTHWEST, SOUTHWEST, NORTH CENTRAL, SOUTH CENTRAL, NORTHEAST and SOUTHEAST). For Resisting Search/Transport it is more or less spread evenly across all the different divisions but with a slight increase in the CENTRAL division.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mydata %>%
+   filter(!is.na(Misdemeanor_Crime)) %>%
+     ggplot(aes(x= Misdemeanor_Crime)) + 
+        geom_bar(fill="deepskyblue") + xlab("Type of Crime") + ggtitle("Misdemeanor Crime in Dallas by Race") + theme_bw() + facet_wrap(~SuspectRaceReduced,  nrow = 3) + scale_x_discrete(guide = guide_axis(n.dodge=5))
+
+
+total5 <- c(752, 265, 24, 288)
+MisdemeanorCrimeRace <- data.frame(Race, total5)
+MisdemeanorCrimeRace <- MisdemeanorCrimeRace %>%   mutate(perc = `total5` / sum(`total5`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(MisdemeanorCrimeRace, aes(x="", y=perc, fill=Race)) +geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Suspect Race", values=c("deepskyblue", "chartreuse", "pink", "blue")) + ggtitle("Pie chart of Misdemeanor Crime against Race") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+```
+
+
+Looking at the plot above we can see that Black suspects have the biggest count for APOWW offenses followed by White and Hispanic suspects. For Evading/Resisting Arrest we can see that Black suspects have an overwhelming majority of offenses which are then followed by White then Hispanic suspects. For Public Intoxication Black suspects have the biggest count of offenses which are then followed by White then Hispanic suspects. For Resisting Search/Transport Black suspects have the highest count of offenses but are closely followed by Hispanic then White suspects.
+
+
+From the pie chart above we can see that Black suspects have the biggest count of Misdemeanor Crime proportionally at 56.6% with White and Hispanic suspects at 21.7% and 19.9% respectively with Other at 1.8%.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+MisdemeanorCrimeTS <- mydata %>% group_by(INCIDENT_MONTH, Misdemeanor_Crime) %>% summarize(count = n())
+
+ggplot() + geom_line(data=subset(MisdemeanorCrimeTS, Misdemeanor_Crime=="Evading/Resisting Arrest" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Evading/Resisting Arrest"),group=1 ,size=1 ) + geom_line(data=subset(MisdemeanorCrimeTS, Misdemeanor_Crime=="APOWW" ) ,aes(y=count,x= INCIDENT_MONTH, colour="APOWW"),group=1,size=1 ) + labs(x="Months", y= "count", title="Misdemeanor Crime Time Series Plot", colour= "Legend") + scale_color_manual(values= c("black", "deepskyblue"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=2)) + theme_bw()
+```
+
+
+From the time series plot above we can see that for APOWW that it peaks in March and reaches its lowest point in August with small peaks in April, July, September and November.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+MisdemeanorCrimeHour <- mydata %>% group_by(Incident_Hour, Misdemeanor_Crime) %>% summarize(count=n()) %>% filter(!is.na(Incident_Hour))
+
+ggplot() + geom_line(data=subset(MisdemeanorCrimeHour, Misdemeanor_Crime=="Evading/Resisting Arrest" ) ,aes(y=count,x= Incident_Hour, colour="Evading/Resisting Arrest"),group=1 ,size=1 ) + geom_line(data=subset(MisdemeanorCrimeHour, Misdemeanor_Crime=="APOWW" ) ,aes(y=count,x= Incident_Hour, colour="APOWW"),group=1 ,size=1 ) + labs(x="Hour", y= "count", title="Misdemeanor Crime Time Series Plot by Hours in Day", colour= "Legend") + scale_color_manual(values= c("deepskyblue", "black"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=2)) + theme_bw()
+```
+
+
+From the time series plot above we can see that for APOWW it is most common in the evening at 17:00 and early in the morning, afternoon and having smaller peaks at 05:00, 13:00 and 20:00 it is also least common early in the morning having its smallest peak early in the morning at 06:00. For Evading/Resisting Arrest it is most common similarly to APOWW in the evening at 17:00 and late at night and in the afternoon having smaller peaks at 01:00, 13:00 and 21:00. Evading/Resisting Arrest is least common early in the morning at 06:00 and in the morning and afternoon at 11:00 and 15:00.
+
+
+# Discrimination in Policing
+To look for any potential discrimination and bias in policing I will look at the non-arrested suspects and look at the reason for the call-out, suspect description, police response and other factors to evaluate if there was any potential bias.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+noarrest <- rep(0,nrow(mydata))
+for (i in 17) {
+noarrest[mydata[,i]=="No"] <- "No Arrest"  
+noarrest[mydata[,i]=="Yes"] <- "Arrested"
+}
+
+
+mydata$NoArrest <- noarrest
+
+
+ggplot(data = mydata, aes(x=SUBJECT_DESCRIPTION)) + geom_bar(fill="deepskyblue") + coord_flip() + theme_bw() + xlab("Suspect Description") + ggtitle("Plot of Suspect Descriptions")
+
+
+
+```
+
+
+From the plot above we can see that the largest types of suspect description are Mentally Unstable, Alcohol and Unknown. The next three most frequent descriptions are Unknown Drugs, None Detected and Alcohol and Unknown Drugs with the rest of the descriptions being considerable less frequent.
+
+
+We can split the plot above against the suspects who were arrested and not arrested to see if there is any difference in suspect descriptions.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data = mydata, aes(x=SUBJECT_DESCRIPTION)) + geom_bar(fill="deepskyblue") + coord_flip() + theme_bw() + xlab("Suspect Description") + ggtitle("Plot of Suspect Descriptions against Arrests/ No Arrests") + facet_wrap(~NoArrest,nrow=3)
+```
+
+
+From the plot above we can see that the suspects who were not arrested the largest count of suspect description was None Detected, Unknown and Unknown Drugs compared to those that were arrested which have Mentally Unstable, Alcohol and Unknown as the biggest descriptions. We can pair this information for the Incident Reason to look for any correlation.
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data = mydata, aes(x=INCIDENT_REASON)) + geom_bar(fill="deepskyblue") + coord_flip() + theme_bw() + xlab("Incident Reason") + ggtitle("Plot of Incident Reason against Arrests/ No Arrests") + facet_wrap(~NoArrest, nrow=2)
+```
+
+
+From the plot above we can see that for the No Arrest subplot the biggest Incident Reason was for a Service Call. We can break down the Service Call incident reason by race.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+sum1 <- c(90,36,8,36)
+mydata_ServiceCallRace <- data.frame(Race, sum1)
+
+ggplot(mydata_ServiceCallRace, aes(x=Race, y=sum1)) + geom_bar(stat="identity", fill="deepskyblue") + ylab("count") + ggtitle("Plot of Service Calls and Race") + theme_bw()
+```
+
+
+From the plot above we can see that Black suspects have the highest count of Service Call incidents with the police with Hispanic and White suspects having tied second and Other at last. 
+
+
+Since citizens make the service calls to the police we cannot gather any more information from "Service Calls" to look for any potential discrimination by the police. We can look more specifically into Traffic Stops and Pedestrian Stops to see if there is any potential bias and discrimination when searching potential suspects.
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+
+Incident_Reason1 <- c("Traffic Stop")
+Count1 <- c(48, 28, 3, 14)
+
+Incident_Reason3 <- c("Pedestrian Stop")
+Count3 <- c(26, 3, 0, 7)
+
+pedestrian_stop_data <- data.frame(Race, Incident_Reason3, Count3)
+pedestrian_stop_data <- pedestrian_stop_data %>% mutate(perc = `Count3` / sum(`Count3`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(pedestrian_stop_data, aes(x="", y=perc, fill=Race)) +geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Suspect Race", values=c("deepskyblue", "chartreuse", "pink", "blue")) + ggtitle("Pie chart of  Pedestrian Stops against Race") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+##################################
+traffic_stop_data <- data.frame(Race, Incident_Reason1, Count1)
+traffic_stop_data <- traffic_stop_data %>%   mutate(perc = `Count1` / sum(`Count1`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(traffic_stop_data, aes(x="", y=perc, fill=Race)) +geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Suspect Race", values=c("deepskyblue", "chartreuse", "pink", "blue")) + ggtitle("Pie chart of Traffic Stops against Race") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+####################
+mydata_racereason_arrested <- mydata %>% group_by(INCIDENT_REASON, SUBJECT_WAS_ARRESTED, SUBJECT_RACE) %>% summarize(count = n())
+
+
+```
+
+
+
+From the pie charts above we can see that Black suspects are disproportionately more likely to be stopped and searched compared to other races. We can go into more depth since the plots above do not differentiate the suspects that were arrested and not arrested.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+amount1 <- c(10, 2, 1, 2)#traffic stop no arrests total
+trafficstop_noarrest <- data.frame(Race, amount1)
+
+trafficstop_noarrest<- trafficstop_noarrest %>%   mutate(perc = `amount1` / sum(`amount1`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(trafficstop_noarrest, aes(x="", y=perc, fill=Race)) +geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Suspect Race", values=c("deepskyblue", "chartreuse", "pink", "blue")) + ggtitle("Pie chart of Traffic Stops against Race & Not Arrested") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+
+###############
+
+amount2 <- c(8, 2, 0, 1)# ped stop no arrests total
+pedstop_noarrest <- data.frame(Race, amount2)
+
+pedstop_noarrest<- pedstop_noarrest %>%   mutate(perc = `amount2` / sum(`amount2`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(pedstop_noarrest, aes(x="", y=perc, fill=Race)) +geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Suspect Race", values=c("deepskyblue", "chartreuse", "pink", "blue")) + ggtitle("Pie chart of Pedestrian Stops against Race & Not Arrested") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+```
+
+
+After factoring in whether the suspects that were arrested or not the pattern is still the same that Black suspects are still searched considerable more compared to White and Hispanic suspects.
+
+
+# Use of Force Incidents in Dallas
+In this section I will look at the Use of Force (UOF) by police officers in Dallas. I have broken down the different types of UOF by **Unarmed Response** and **Armed Response**. Unarmed Response will include Takedown, Strikes, Joint Locks etc... and Armed Response will include a variety of less than lethal responses such as Pepper Spray, Taser etc... I will analyse this information against a variety of different factors such as suspect race, crime, location etc...
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+Unarmed_Response <- rep(0,nrow(mydata))
+for (i in 36:45) {
+Unarmed_Response[mydata[,i]=="BD - Grabbed"] <- "Takedown"
+Unarmed_Response[mydata[,i]=="BD - Pushed"] <- "Takedown"
+Unarmed_Response[mydata[,i]=="BD - Tripped"] <- "Takedown"
+Unarmed_Response[mydata[,i]=="Combat Stance"] <- "Takedown"
+Unarmed_Response[mydata[,i]=="Feet/Leg/Knee Strike"] <- "Strikes"
+Unarmed_Response[mydata[,i]=="Hand Controlled Escort"] <- "Physically Restrained"
+Unarmed_Response[mydata[,i]=="Hand/Arm/Elbow Strike"] <- "Strikes"
+Unarmed_Response[mydata[,i]=="Handcuffing Take Down"] <- "Takedown"
+Unarmed_Response[mydata[,i]=="Held Suspect Down"] <- "Physically Restrained"
+Unarmed_Response[mydata[,i]=="Joint Locks"] <- "Joint Lock/Pressure Point"
+Unarmed_Response[mydata[,i]=="Leg Restraint System"] <- "Physically Restrained"
+Unarmed_Response[mydata[,i]=="LVNR"] <- "Chokehold"
+Unarmed_Response[mydata[,i]=="Take Down - Arm"] <- "Takedown"
+Unarmed_Response[mydata[,i]=="Take Down - Body"] <- "Takedown"
+Unarmed_Response[mydata[,i]=="Take Down - Group"] <- "Takedown"
+Unarmed_Response[mydata[,i]=="Take Down - Head"] <- "Takedown"
+Unarmed_Response[mydata[,i]=="Verbal Command"] <- "Verbal Command"
+Unarmed_Response[mydata[,i]=="Pressure Points"] <- "Joint Lock/Pressure Point"
+}
+Unarmed_Response[Unarmed_Response==0] <- NA
+mydata$Unarmed_Response <- Unarmed_Response
+##############
+
+Armed_Response <- rep(0,ncol(mydata))
+for (i in 36:45) {
+Armed_Response[mydata[,i]=="Baton Display"] <- "Baton"
+Armed_Response[mydata[,i]=="Baton Strike/Closed Mode"] <- "Baton"
+Armed_Response[mydata[,i]=="Baton Strike/Open Mode"] <- "Baton"
+Armed_Response[mydata[,i]=="K-9 Deployment"] <- "K9"
+Armed_Response[mydata[,i]=="OC Spray"] <- "Pepper Spray/Pepperball"
+Armed_Response[mydata[,i]=="Other Impact Weapon"] <- "Other Impact Weapon"
+Armed_Response[mydata[,i]=="Pepperball Impact"] <- "Pepper Spray/Pepperball"
+Armed_Response[mydata[,i]=="Pepperball Saturation"] <- "Pepper Spray/Pepperball"
+Armed_Response[mydata[,i]=="Taser"] <- "Taser"
+Armed_Response[mydata[,i]=="Taser Display at Person"] <- "Taser Display"
+Armed_Response[mydata[,i]=="Weapon display at Person"] <- "Weapon Display"
+}
+Armed_Response[Armed_Response==0] <- NA
+mydata$Armed_Response <- Armed_Response
+
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mydata %>%
+   filter(!is.na(Unarmed_Response)) %>%
+ggplot(aes(x=Unarmed_Response)) + geom_bar(fill="deepskyblue") + xlab("Type of Unarmed Response") + ggtitle("Plot of Unarmed UOF") + theme_bw() + coord_flip()
+```
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+UnarmedUOFTS <-  mydata %>%
+  group_by(INCIDENT_MONTH, Unarmed_Response) %>%
+  summarize(count = n())
+
+ggplot() + geom_line(data=subset(UnarmedUOFTS, Unarmed_Response=="Joint Lock/Pressure Point" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Joint Lock/Pressure Point"),group=1 ,size=1 ) + geom_line(data=subset(UnarmedUOFTS, Unarmed_Response=="Physically Restrained" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Physically Restrained"),group=1,size=1 ) + geom_line(data=subset(UnarmedUOFTS, Unarmed_Response=="Strikes" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Strikes"),group=1,size=1 ) + geom_line(data=subset(UnarmedUOFTS, Unarmed_Response=="Takedown" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Takedown"),group=1,size=1 ) + geom_line(data=subset(UnarmedUOFTS, Unarmed_Response=="Verbal Command" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Verbal Command"),group=1,size=1 ) + labs(x="Months", y= "count", title=" Unarmed UOF Time Series", colour= "Legend") + scale_color_manual(values= c("black", "red", "deepskyblue", "springgreen", "pink"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=5)) + theme_bw()
+```
+
+
+From the bar plot above we can see that Physically Restrained is the highest count of unarmed UOF being closely followed by Takedown with Verbal Command and Joint Lock/Pressure Point in third and fourth place with Strikes in last. From the time series plot above we can see that similarly to the bar plot above that Physically Restrained and Takedown have the highest count with the general trend of it being decreasing similar to the trend of the incidents throughout the year.
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mydata %>%
+   filter(!is.na(Armed_Response)) %>%
+ggplot(aes(x=Armed_Response)) + geom_bar(fill="deepskyblue") + xlab("Type of Armed Response") + ggtitle("Plot of Armed UOF") + theme_bw() + coord_flip()
+
+ArmedUOFTS <-  mydata %>%
+  group_by(INCIDENT_MONTH, Armed_Response) %>%
+  summarize(count = n())
+
+ggplot() + geom_line(data=subset(ArmedUOFTS, Armed_Response=="Baton" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Baton"),group=1 ,size=1 ) + geom_line(data=subset(ArmedUOFTS, Armed_Response=="K9" ) ,aes(y=count,x= INCIDENT_MONTH, colour="K9"),group=1,size=1 ) + geom_line(data=subset(ArmedUOFTS, Armed_Response=="Other Impact Weapon" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Other Impact Weapon"),group=1,size=1 ) + geom_line(data=subset(ArmedUOFTS, Armed_Response=="Pepper Spray/Pepperball" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Pepper Spray/Pepperball"),group=1,size=1 ) + geom_line(data=subset(ArmedUOFTS, Armed_Response=="Taser" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Taser"),group=1,size=1 ) + geom_line(data=subset(ArmedUOFTS, Armed_Response=="Taser Display" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Taser Display"),group=1,size=1 ) + geom_line(data=subset(ArmedUOFTS, Armed_Response=="Weapon Display" ) ,aes(y=count,x= INCIDENT_MONTH, colour="Weapon Display"),group=1,size=1 ) + labs(x="Months", y= "count", title=" Armed UOF Time Series", colour= "Legend") + scale_color_manual(values= c("black", "red", "deepskyblue", "springgreen", "pink", "blue", "yellow"))  + theme(legend.position="right") + guides(colour=guide_legend(nrow=7)) + theme_bw()
+```
+
+
+From the bar plot above we can see that Weapon Display is by far the most common type of Armed UOF is Weapon Display with Taser and Taser Display being nearly tied in second and third place and Pepper Spray/Pepperball in fourth place with the other UOF types being in negligible amounts. From the time series plot above we can see that Weapon Display is the highest type of Armed UOF followed by Taser and Taser Display and Pepper Spray/Pepperball with the remaining tactics being too infrequent.
+
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(mydata, aes(x=REASON_FOR_FORCE)) + geom_bar(fill="deepskyblue") + xlab("Reason") + ggtitle("Reason For Force Bar Plot") + coord_flip() + theme_bw()
+```
+
+
+From the bar plot above we can see that the biggest reason for UOF was Arrest, Danger to self or others and Active Aggression.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+UApal <- colorFactor(c("darkorchid", "blue", "springgreen", "red", "deepskyblue"), mydata$Unarmed_Response, n = 5)
+mydata %>%
+  leaflet() %>%
+  addTiles() %>%
+  
+addCircleMarkers(data = mydata[mydata$Unarmed_Response=="Joint Lock/Pressure Point",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Joint Lock/Pressure Point", color="darkorchid") %>%
+
+addCircleMarkers(data = mydata[mydata$Unarmed_Response=="Physically Restrained",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Physically Restrained", color="blue") %>% 
+
+addCircleMarkers(data = mydata[mydata$Unarmed_Response=="Strikes",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Strikes", color="springgreen") %>%   
+  
+addCircleMarkers(data = mydata[mydata$Unarmed_Response=="Takedown",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Takedown", color="red") %>%  
+        
+addCircleMarkers(data = mydata[mydata$Unarmed_Response=="Verbal Command",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Verbal Command", color="deepskyblue") %>%  
+
+addLegend(pal = UApal, position = "topright", values=mydata$Unarmed_Response, title = "Type of UOF", opacity = 1) %>%
+
+addLayersControl(overlayGroups = c("Joint Lock/Pressure Point", "Physically Restrained", "Strikes", "Takedown", "Verbal Command"), position = "bottomright")
+
+
+mydata %>%
+   filter(!is.na(Unarmed_Response)) %>%
+  ggplot(aes(x=Unarmed_Response)) + geom_bar(fill="deepskyblue") + facet_wrap(~DIVISION, nrow=4) + theme_bw() + xlab("Type of UOF") + coord_flip() + ggtitle("Unarmed UOF across DIVISIONS")
+
+
+```
+
+
+From the map and bar plot above we can see that for Verbal Command it is most common in the city centre and eastern divisions (NORTHEAST and SOUTHEAST). For Takedown it is also similarly most common in the city centre and eastern divisions (NORTHEAST and SOUTHEAST). For Strikes it is more evenly distributed across the city with a small increase in the city centre. For Physically Restrained it is most concentrated in the city centre with more in the eastern divisions than the west (NORTHEAST and  SOUTHEAST). For Joint Lock/Pressure Point it is most common in the city centre and being evenly distributed outside the central divisions.
+
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+mydata %>%
+   filter(!is.na(Unarmed_Response)) %>%
+  ggplot(aes(x=Unarmed_Response)) + geom_bar(fill="deepskyblue") + facet_wrap(~SuspectRaceReduced, nrow=4) + theme_bw() + xlab("Type of UOF") + coord_flip() + ggtitle("Unarmed UOF against Suspect Race")
+
+UnarmedUOFRace <-  mydata %>%
+  group_by(Unarmed_Response, SuspectRaceReduced) %>%
+  summarize(count = n())
+
+UnarmedUOFRaceCount <- c(1148, 450, 45, 406)
+mydataUnarmedUOFRace <- data.frame(Race, UnarmedUOFRaceCount)
+
+mydataUnarmedUOFRace <- mydataUnarmedUOFRace %>%   mutate(perc = `UnarmedUOFRaceCount` / sum(`UnarmedUOFRaceCount`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+
+ggplot(mydataUnarmedUOFRace, aes(x="", y=perc, fill=Race)) +geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Suspect Race", values=c("deepskyblue", "chartreuse", "pink", "blue")) + ggtitle("Pie chart of Unarmed UOF against Race") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+```
+
+
+From the bar plot above we can see that Black suspects have the highest count of every Unarmed UOF tactic with Hispanic and White suspects having similar amounts. From the pie chart above we can see that black suspects have proportionally the highest count of  Unarmed UOF incidents at 56% with Hispanic and White suspects at 22% and 19.8% respectively.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ARpal <- colorFactor(c("darkorchid", "blue", "springgreen", "red", "deepskyblue", "orange", "black"), mydata$Armed_Response, n = 7)
+mydata %>%
+  leaflet() %>%
+  addTiles() %>%
+  
+addCircleMarkers(data = mydata[mydata$Armed_Response=="Baton",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Baton", color="darkorchid") %>%
+
+addCircleMarkers(data = mydata[mydata$Armed_Response=="K9",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "K9", color="blue") %>%
+
+addCircleMarkers(data = mydata[mydata$Armed_Response=="Other Impact Weapon",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Other Impact Weapon", color="springgreen") %>%   
+  
+addCircleMarkers(data = mydata[mydata$Armed_Response=="Pepper Spray/Pepperball",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Pepper Spray/Pepperball", color="red") %>%  
+        
+addCircleMarkers(data = mydata[mydata$Armed_Response=="Taser",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Taser", color="deepskyblue") %>%  
+  
+addCircleMarkers(data = mydata[mydata$Armed_Response=="Taser Display",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Taser Display", color="orange") %>%  
+  
+addCircleMarkers(data = mydata[mydata$Armed_Response=="Weapon Display",],lng = ~LOCATION_LONGITUDE, lat = ~LOCATION_LATITUDE, group = "Weapon Display", color="black") %>%  
+
+addLegend(pal = ARpal, position = "topright", values=mydata$Armed_Response, title = "Type of UOF", opacity = 1) %>%
+
+addLayersControl(overlayGroups = c("Baton", "K9", "Other Impact Weapon", "Pepper Spray/Pepperball", "Taser", "Taser Display", "Weapon Display"), position = "bottomright")
+
+mydata %>%
+   filter(!is.na(Armed_Response)) %>%
+  ggplot(aes(x=Armed_Response)) + geom_bar(fill="deepskyblue") + facet_wrap(~DIVISION, nrow=4) + theme_bw() + xlab("Type of UOF") + coord_flip() + ggtitle("Armed UOF across DIVISIONS")
+```
+
+
+From the map and bar plot above we can see that Weapon Display is most common in the city centre and eastern divisions (NORTHEAST and SOUTHEAST). For Taser Display it is most common in the city centre and eastern divisions (NORTHEAST and SOUTHEAST). For Taser it is similarly most common in the city centre and eastern divisions (NORTHEAST and SOUTHEAST). For Pepper Spray/Pepperball we can see that it is most common in the eastern divisions (NORTHEAST and SOUTHEAST) and in the city centre. For the other types of UOF there is not enough data to gauge any pattern in their locations.
+
+
+We can look at the different reasons for Armed UOF tactics for Weapon Display, Taser and Pepper Spray/Pepperball and plotting the against different variables.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+mydata %>%
+   filter(!is.na(Armed_Response)) %>%
+  ggplot(aes(x=Armed_Response)) + geom_bar(fill="deepskyblue") + facet_wrap(~SuspectRaceReduced, nrow=4) + theme_bw() + xlab("Type of UOF") + coord_flip() + ggtitle("Armed UOF against Suspect Race")
+
+ArmedUOFRace <-  mydata %>%
+  group_by(Armed_Response, SuspectRaceReduced) %>%
+  summarize(count = n())
+
+ArmedUOFRaceCount <- c(491, 195, 25, 143)
+mydataArmedUOFRace <- data.frame(Race, ArmedUOFRaceCount)
+
+mydataArmedUOFRace <- mydataArmedUOFRace %>%   mutate(perc = `ArmedUOFRaceCount` / sum(`ArmedUOFRaceCount`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+
+ggplot(mydataArmedUOFRace, aes(x="", y=perc, fill=Race)) +geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Suspect Race", values=c("deepskyblue", "chartreuse", "pink", "blue")) + ggtitle("Pie chart of Armed UOF against Race") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+```
+
+
+From the bar plot above we can see that Black suspects have by far the highest count of Weapon Display with Hispanic and White suspects in second and third place respectively. Similarly for Taser Black suspects have the highest count with Hispanic suspects in second being closely followed by White suspects. For Pepper Spray/Pepperball the pattern is still the same with Black suspects having the highest count and Hispanic and White suspects taking second and third place. From the pie chart above we can also see that Black suspects have proportionally the highest count of Armed UOF incidents at 57.5% followed by Hispanic and White suspects at 22.8% and 16.7% respectively.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ARCrimeVio <- mydata %>% group_by(Armed_Response, Violent_Crime) %>% summarize(count=n())
+
+ARCrimeDrug <- mydata %>% group_by(Armed_Response, Drug_Crime) %>% summarize(count=n())
+
+ARCrimeProperty <- mydata %>% group_by(Armed_Response, Property_Crime) %>% summarize(count=n())
+
+ARCrimeTraffic <- mydata %>% group_by(Armed_Response, Traffic_Crime) %>% summarize(count=n())
+
+ARCrimeMisdem <- mydata %>% group_by(Armed_Response, Misdemeanor_Crime) %>% summarize(count=n())
+
+Crime <- c("Violent Crime", "Drug Crime", "Property Crime", "Traffic Crime", "Misdemeanor Crime")
+
+ARCrimeTotal <- c(160, 85, 101, 19, 371)
+
+mydataARCrimeTotal <- data.frame(Crime, ARCrimeTotal)
+
+
+mydataARCrimeTotal <- mydataARCrimeTotal %>%   mutate(perc = `ARCrimeTotal` / sum(`ARCrimeTotal`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(mydataARCrimeTotal, aes(x="", y=perc, fill=Crime)) + geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Type of Crime", values=c("deepskyblue", "chartreuse", "pink", "blue", "springgreen")) + ggtitle("Pie chart of Type of Crime against Armed UOF") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+```
+
+
+From the pie chart above we can see that Misdemeanor Crime makes up the most of Armed UOF incidents at 50.4% with Violent Crime in second place at 21.7% and Property Crime in third place 13.7% and Drug Crime in fourth place at 11.5% and lastly Traffic Crime in last place at 2.6%.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+PoliceYearsOnForce <- rep(0,nrow(mydata))
+for (i in 8) {
+PoliceYearsOnForce[mydata[,i]=="0"] <-" 0-5 Years"
+PoliceYearsOnForce[mydata[,i]=="1"] <-" 0-5 Years"
+PoliceYearsOnForce[mydata[,i]=="2"] <-" 0-5 Years"
+PoliceYearsOnForce[mydata[,i]=="3"] <-" 0-5 Years"
+PoliceYearsOnForce[mydata[,i]=="4"] <-" 0-5 Years"
+PoliceYearsOnForce[mydata[,i]=="5"] <-" 0-5 Years"
+PoliceYearsOnForce[mydata[,i]=="6"] <-" 6-15 Years"
+PoliceYearsOnForce[mydata[,i]=="7"] <-" 6-15 Years"
+PoliceYearsOnForce[mydata[,i]=="8"] <-" 6-15 Years"
+PoliceYearsOnForce[mydata[,i]=="9"] <-" 6-15 Years"
+PoliceYearsOnForce[mydata[,i]=="10"] <-" 6-15 Years"
+PoliceYearsOnForce[mydata[,i]=="11"] <-" 6-15 Years"
+PoliceYearsOnForce[mydata[,i]=="12"] <-" 6-15 Years"
+PoliceYearsOnForce[mydata[,i]=="13"] <-" 6-15 Years"
+PoliceYearsOnForce[mydata[,i]=="14"] <-" 6-15 Years"
+PoliceYearsOnForce[mydata[,i]=="15"] <-" 6-15 Years"
+PoliceYearsOnForce[mydata[,i]=="16"] <-" 16-25 Years"
+PoliceYearsOnForce[mydata[,i]=="17"] <-" 16-25 Years"
+PoliceYearsOnForce[mydata[,i]=="18"] <-" 16-25 Years"
+PoliceYearsOnForce[mydata[,i]=="19"] <-" 16-25 Years"
+PoliceYearsOnForce[mydata[,i]=="20"] <-" 16-25 Years"
+PoliceYearsOnForce[mydata[,i]=="21"] <-" 16-25 Years"
+PoliceYearsOnForce[mydata[,i]=="22"] <-" 16-25 Years"
+PoliceYearsOnForce[mydata[,i]=="23"] <-" 16-25 Years"
+PoliceYearsOnForce[mydata[,i]=="24"] <-" 16-25 Years"
+PoliceYearsOnForce[mydata[,i]=="25"] <-" 16-25 Years"
+PoliceYearsOnForce[mydata[,i]=="26"] <-"26 + Years"
+PoliceYearsOnForce[mydata[,i]=="27"] <-"26 + Years"
+PoliceYearsOnForce[mydata[,i]=="28"] <-"26 + Years"
+PoliceYearsOnForce[mydata[,i]=="29"] <-"26 + Years"
+PoliceYearsOnForce[mydata[,i]=="30"] <-"26 + Years"
+PoliceYearsOnForce[mydata[,i]=="31"] <-"26 + Years"
+PoliceYearsOnForce[mydata[,i]=="32"] <-"26 + Years"
+PoliceYearsOnForce[mydata[,i]=="33"] <-"26 + Years"
+PoliceYearsOnForce[mydata[,i]=="34"] <-"26 + Years"
+PoliceYearsOnForce[mydata[,i]=="36"] <-"26 + Years"
+}
+mydata$PoliceYearsOnForce <- PoliceYearsOnForce
+```
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(mydata, aes(x=PoliceYearsOnForce)) + geom_bar(fill="deepskyblue") + theme_bw() + xlab("Years in Force") + ggtitle("Plot of Officer Years in Force ")
+```
+
+
+From the bar plot above we can see that majority of police officers have been in the force for 0-5 years and 6-15 years with the minority only having 16+ years in the force. 
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+UnarmedUOFYears <-  mydata %>%
+  group_by(Unarmed_Response, PoliceYearsOnForce) %>%
+  summarize(count = n())
+
+Years <- c("0-5 Years", "6-15 Years", "16-25 Years", "26 + Years")
+UnarmedUOFYearsCount <- c(995, 779, 164, 111)
+
+mydataUnarmedUOFYears <- data.frame(Years, UnarmedUOFYearsCount)
+
+mydataUnarmedUOFYears <- mydataUnarmedUOFYears %>%   mutate(perc = `UnarmedUOFYearsCount` / sum(`UnarmedUOFYearsCount`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(mydataUnarmedUOFYears, aes(x="", y=perc, fill=Years)) + geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Years in Force", values=c("deepskyblue", "chartreuse", "pink", "blue", "springgreen")) + ggtitle("Pie chart of Unarmed UOF and Years in Force") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+```
+
+
+From the pie chart above we can see that officers that were in the police force for 0-5 years and 6-15 years have proportionally the highest count of Unarmed UOF incidents with officers that were in the force for 16 + years having considerably less.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ArmedUOFYears <-  mydata %>%
+  group_by(Armed_Response, PoliceYearsOnForce) %>%
+  summarize(count = n())
+
+ArmedUOFYearsCount <- c(366, 349, 81, 58)
+
+mydataArmedUOFYears <- data.frame(Years, ArmedUOFYearsCount)
+
+mydataArmedUOFYears <- mydataArmedUOFYears %>%   mutate(perc = `ArmedUOFYearsCount` / sum(`ArmedUOFYearsCount`)) %>% 
+  arrange(perc) %>%
+  mutate(labels = scales::percent(perc))
+
+ggplot(mydataArmedUOFYears, aes(x="", y=perc, fill=Years)) + geom_bar(width = 1, stat = "identity") + coord_polar("y", start=0)  +
+  theme(axis.text.x=element_blank()) +  scale_fill_manual("Years in Force", values=c("deepskyblue", "chartreuse", "pink", "blue", "springgreen")) + ggtitle("Pie chart of Armed UOF and Years in Force") + xlab("") + ylab("") +  geom_text(aes(label = labels),
+            position = position_stack(vjust = 0.5))
+```
+
+
+From the pie chart above we can see that officers that have been in the police force for 0-5 years and 6-15 years have proportionally the highest count of Armed UOF incidents with officers that were in the force for 16 + years having considerably less.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+VCUOFTac_YearsCount <- c(210, 182, 34, 16)
+mydataVCUOFTac_Years <- data.frame(Years, VCUOFTac_YearsCount)
+
+TDUOFTac_YearsCount <-c(292, 246, 57, 39)
+mydataTDUOFTac_YearsCount <- data.frame(Years, TDUOFTac_YearsCount)
+
+PRUOFTac_YearsCount <- c(362, 219, 46, 31)
+mydataPRUOFTac_YearsCount <- data.frame(Years, PRUOFTac_YearsCount)
+
+ua_1 <- ggplot(mydataVCUOFTac_Years, aes(x=Years, y=VCUOFTac_YearsCount)) + theme_bw() + xlab("Years in Force") + ylab("count") + ggtitle("Plot of Verbal Command & Years in Force") + geom_bar(stat="identity", fill="deepskyblue")  
+ua_2 <- ggplot(mydataTDUOFTac_YearsCount, aes(x=Years, y=TDUOFTac_YearsCount)) +  xlab("Years in Force") + ylab("count") + ggtitle("Plot of Takedown & Years in Force") + geom_bar(stat="identity", fill="deepskyblue") + theme_bw()
+ua_3 <- ggplot(mydataPRUOFTac_YearsCount, aes(x=Years, y=PRUOFTac_YearsCount)) +  xlab("Years in Force") + ylab("count") + ggtitle("Plot of Physcially Restrained & Years in Force") + geom_bar(stat="identity", fill="deepskyblue") + theme_bw()
+
+ua_1
+ua_2
+ua_3
+
+```
+
+
+From the bar plots above we can see that for the different Unarmed UOF tactics and incident count that less experienced officers have higher (<15 years) have considerably higher counts of incidents compared to their more experienced counterparts (16 + years).
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+WDUOFTac_YearsCount <- c(198, 178, 39, 29)
+mydataWDUOFTac_YearsCount <- data.frame(Years, WDUOFTac_YearsCount)
+
+TUOFTac_YearsCount <- c(72, 65, 14, 13)
+mydataTUOFTac_YearsCount <- data.frame(Years, TUOFTac_YearsCount)
+
+PSUOFTac_YearsCount <- c(12, 35, 6, 4)
+mydataPSUOFTac_YearsCount <- data.frame(Years, PSUOFTac_YearsCount)
+
+ar_1 <- ggplot(mydataWDUOFTac_YearsCount, aes(x=Years, y=WDUOFTac_YearsCount)) + labs(title="Plot of Weapon Display & Years in Force", x="Years in Force", y="count") + geom_bar(stat="identity", fill="deepskyblue") + theme_bw()
+
+ar_2 <- ggplot(mydataTUOFTac_YearsCount, aes(x=Years, y=TUOFTac_YearsCount)) + labs(title="Plot of Taser & Years in Force", x="Years in Force", y="count") + geom_bar(stat="identity", fill="deepskyblue") + theme_bw()
+
+ar_3 <- ggplot(mydataPSUOFTac_YearsCount, aes(x=Years, y=PSUOFTac_YearsCount)) + labs(title="Plot of Pepper Spray/Pepperball & Years in Force", x="Years in Force", y="count") + geom_bar(stat="identity", fill="deepskyblue") + theme_bw()
+
+ar_1 
+ar_2 
+ar_3 
+```
+
+
+From the bar plots above we can see a similar trend to Unarmed UOF incidents where officers that have been in the force for less periods of time have higher incident counts for Armed UOF Tactics which you can see above for Weapon Display, Taser and Pepper Spray/Pepperball. 
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+SuspectHospitalised <- rep(0,nrow(mydata))
+
+for (i in 16) {
+SuspectHospitalised[mydata[,i]=="Puncture, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Abrasion/Scrape, Bruise, Hospitalized, Taser Burn Marks"] <- 1
+SuspectHospitalised[mydata[,i]=="Taser Burn Marks, Abrasion/Scrape, Hospitalized, Hospital Drug Evaluation"] <- 1
+SuspectHospitalised[mydata[,i]=="Bruise, Redness/Swelling, Laceration/Cut, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Injured prior to contact, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Bloody Nose, Laceration/Cut, Hospitalized, Redness/Swelling"] <- 1
+SuspectHospitalised[mydata[,i]=="Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Bloody Nose, Bruise, Treated by DFD, Hospitalized, Fracture"] <- 1
+SuspectHospitalised[mydata[,i]=="Injured prior to contact, Injury Not Related to Force, Treated by DFD, OC Spray Treatment, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Abrasion/Scrape, Taser Burn Marks, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Abrasion/Scrape, Hospitalized, Taser Burn Marks, Treated by DFD"] <- 1
+SuspectHospitalised[mydata[,i]=="Taser Burn Marks, Injury Not Related to Force, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Abrasion/Scrape, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Elevated Heart Rate, Injury Not Related to Force, Treated by DFD, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Hospital Drug Evaluation, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Abrasion/Scrape, Injured prior to contact, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Laceration/Cut, Puncture, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Redness/Swelling, Taser Burn Marks, Laceration/Cut, Hospitalized, Treated by DFD"] <- 1
+SuspectHospitalised[mydata[,i]=="Abrasion/Scrape, Treated by DFD, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Bloody Nose, Taser Burn Marks, Treated by DFD, Hospital Drug Evaluation, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Treated by DFD, Elevated Blood Pressure, Elevated Heart Rate, Hospitalized"] <- 1
+SuspectHospitalised[mydata[,i]=="Hospital Drug Evaluation, Hospitalized, Non-Visible Injury/Pain, Pepperball Treatment"] <- 1
+SuspectHospitalised[mydata[,i]=="Bloody Nose, Hospitalized, Non-Visible Injury/Pain, Abrasion/Scrape, Redness/Swelling"] <- 1
+SuspectHospitalised[mydata[,i]=="Fracture, Bloody Nose, Laceration/Cut, Treated by DFD, Hospitalized"] <- 1
+}
+
+OfficerHospitalised <- rep(0,nrow(mydata))
+for (i in 11) {
+OfficerHospitalised[mydata[,i]=="Yes"] <- 1  
+OfficerHospitalised[mydata[,i]=="No"] <- 0
+}
+
+mydata$OfficerHospitalised <- OfficerHospitalised
+mydata$SuspectHospitalised <- SuspectHospitalised
+
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+OfficerSuspectHosp <- mydata %>% select(OfficerHospitalised, SuspectHospitalised)
+
+Corr = cor(OfficerSuspectHosp)
+corr.p = cor_pmat(OfficerSuspectHosp)
+
+G = ggcorrplot(Corr, hc.order = TRUE, type = "lower", lab = TRUE, lab_size = 3)
+G + ggtitle("Correlation Matrix of Officer & Suspect Hospitalisation")
+```
+
+
+From the plot above we can see that the correlation between officers and suspects getting hospitalised is at a value of 0.14 which suggests that there is little to no correlation to officers and suspects being hospitalised.
+
+
+# Summary of Findings
+## Preliminary Findings
+In the preliminary findings we find that in the data set there are considerably more black suspects having incidents with the police and being arrested in greater numbers compared to other races. With the frequency of incidents with police decreasing throughout the year and that the majority of the police force is made up of males officers who are predominantly white. We can also see the the rates of crime in Dallas for the different types of crime.
+
+
+
+## A Closer Look at Crime in Dallas
+From the different categories of crime in Dallas we are able to see their different rates and locations and analyse them against different factors such as race, month and hour.
+
+### Violent Crime
+The most frequent case of Violent Crime in Dallas was Domestic Violence and Assault mostly taking place in central Dallas and in the outskirts and city centre. Black suspects were proportionally the biggest perpetrators of Violent Crime who were then followed by Hispanic then White suspects. From the time series plots we are able to tell that Assault and Domestic Violence most occur late at night and in the evening and being most frequent near the beginning of the year in February and March.
+
+
+### Drug Crime
+The most frequent case of Drug Crime in Dallas was Drug Possession which was mostly taking place in the city centre and eastern parts of Dallas. Black suspects were proportionally the biggest perpetrators of Drug Crime who were then followed by Hispanic and White suspects. From the time series plots we are able to tell that Drug Possession occurs most late at night and in the evening and being most frequent near the beginning of the year in February.
+
+
+### Property Crime
+The most frequent case of Property Crime in Dallas was Trespassing which was mostly taking place in central Dallas and in the eastern parts of the city. Black suspects were proportionally the biggest perpetrators of Property Crime in Dallas who were then followed by White and Hispanic suspects. From the time series plots we are able to tell that Trespassing occurs most in the evening and in the afternoon and that it is most frequent in spring in March.
+
+
+### Traffic Crime
+The most frequent case of Traffic Crime in Dallas was DUI/DWI which was mostly taking place in central Dallas and in the western regions of the city. Black suspects were proportionally the biggest perpetrators of Traffic Crime in Dallas who were then followed by Hispanic and White suspects. From the time series plots we are able to tell that DUI/DWI occurs most late at night and in the evening and that it is most frequent in summer in June.
+
+
+### Misdemeanor Crime
+The most frequent case of Misdemeanor Crime in Dallas was Evading/Resisting Arrest which was mostly taking place in the city centre. Black suspects were proportionally the biggest perpetrators of Misdemeanor Crime in Dallas who were then followed by White and Hispanic suspects. From the time series plots we are able to tell that fact that Evading/Resisting Arrest occurs most in the evening and late at night and that it is most frequent in March.
+
+
+## Discrimination in Policing 
+The biggest suspect description was Mentally Unstable and faceting it against whether suspects were arrested or not we can see that for those that were not arrested the biggest description was None Detected. Pairing this information with INCIDENT_REASON we can see that for those that were not arrested the biggest incident reason was a Service Call. Looking more closely into Service Call and breaking it down by race we can see that Black suspects we can see that Black suspects have the highest count of Service Call incidents followed by Hispanic and White suspects being tied second. Due to the fact citizens make the service calls to the police it is hard to discern whether there is potential discrimination since suspects would be arrested or not arrested whether or not they committed a crime.
+
+On the other hand we can take a closer look at Pedestrian Stops and Traffic Stops to see if there is any potential discrimination. From the pie charts we are able to see that Black suspects go through Pedestrian and Traffic Stops proportionally more compared to other races. Looking more specifically to suspects that were searched but not arrested we can still see that Black suspects still have gone through more Traffic and Pedestrian Stops compared to other races. However, there is not enough data in the data set to determine whether this is racially motivated.
+
+
+## Use of Force Incidents in Dallas
+From the bar plots we can see that the biggest type of Unarmed UOF was Physically Restrained and the biggest type of Armed UOF was Weapon Display. The biggest Reason For Force was Arrest. Using the maps we can see that the UOF tactic Physically Restrained was most common in the city centre and in the eastern regions of the city. For the Armed UOF tactic Weapon Display we can see that it is most common in the city centre and in the eastern regions of the city. For both Armed and Unarmed UOF Black suspects have proportionally the biggest count of incidents followed by Hispanic and White suspects. 
+
+From the bar plot we can see that majority of police officers in Dallas have been in the force for less than 15 years. Using the pie charts we can see that the officers who have been in the force for less than 15 years have higher Armed and Unarmed UOF incidents compared to officers who were in the force for 16 + years. This can suggest that the more experienced officers know how to deal with suspects with less UOF tactics compared to the officers who have less experience although there is a lack of data to confirm this.
+
+From the correlation matrix we can see that there is a weak correlation between officers getting hospitalised and suspects being hospitalised.
